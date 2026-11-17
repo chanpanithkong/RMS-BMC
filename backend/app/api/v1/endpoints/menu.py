@@ -65,7 +65,9 @@ def create_category(body: CategoryIn, ctx: Manage):
 
 @router.patch("/menu-categories/{category_id}", response_model=CategoryOut)
 def update_category(category_id: uuid.UUID, body: CategoryIn, ctx: Manage):
-    cat = ctx.db.get(MenuCategory, category_id) or (_ for _ in ()).throw(NotFound("Category"))
+    cat = ctx.db.get(MenuCategory, category_id)
+    if cat is None:
+        raise NotFound("Category")
     before = {k: getattr(cat, k) for k in body.model_fields}
     for k, v in body.model_dump().items():
         setattr(cat, k, v)

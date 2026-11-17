@@ -1,0 +1,63 @@
+# Restaurant Management System — backend stack.
+# Usage: copy .env.example to .env, set the secrets, then `docker compose up -d --build`.
+# Containers talk to each other by service name (db, redis), never localhost.
+name: rms
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: restaurant_management_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d restaurant_management_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Not published to the host by default (your local PostgreSQL already uses 5432).
+    # Uncomment to reach it from the host on 5434:
+    # ports: ["5434:5432"]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment: &backend-env
+      APP_ENV: ${APP_ENV:-production}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DATABASE_URL: postgresql+psycopg://postgres:$${DB_PASSWORD}@db:5432/restaurant_management_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker -B -l info
+    environment: *backend-env
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  pgdata:
