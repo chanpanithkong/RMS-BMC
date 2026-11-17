@@ -317,6 +317,7 @@ class Supplier(IdMixin, TimestampMixin, Base):
     payment_terms: Mapped[str] = mapped_column(String(20), default="Net 30")
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     status: Mapped[str] = mapped_column(String(10), default="Active")
+    branch_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")  # FR-BRN-005: empty = shared by all branches
 
 
 class SupplierItem(IdMixin, Base):

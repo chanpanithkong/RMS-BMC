@@ -152,7 +152,7 @@ def run(ctx: Ctx, report_id: str, date_from: date | None, date_to: date | None, 
 
     reports = _all_reports()
     if report_id not in reports:
-        raise NotFound("Report (RPT-06 and Phase 3 reports are not built yet)")
+        raise NotFound("Report")
     name, perms = reports[report_id]
     if not any(ctx.can(p) for p in perms):
         raise Forbidden(f"You don't have access to {name}.", code="REPORT_FORBIDDEN")

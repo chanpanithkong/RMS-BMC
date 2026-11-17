@@ -177,7 +177,9 @@ def unmapped_items(ctx: Ctx, days: int = 30) -> list[dict]:
 # ---------------------------------------------------------------- consumption (BR-014, FR-RCP-006)
 def consumption_location(ctx: Ctx, ing: Ingredient) -> uuid.UUID:
     if ing.default_location_id:
-        return ing.default_location_id
+        loc = ctx.db.get(InventoryLocation, ing.default_location_id)
+        if loc is not None and loc.branch_id == ctx.branch_id and loc.is_active:  # the default may belong to another branch (BR-025)
+            return loc.id
     loc = ctx.db.scalar(select(InventoryLocation.id).where(InventoryLocation.branch_id == ctx.branch_id, InventoryLocation.is_active).order_by(InventoryLocation.name).limit(1))
     if loc is None:
         raise BusinessRuleError("CONFIG_INCOMPLETE", "No inventory location is configured for this branch.")

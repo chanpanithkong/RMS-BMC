@@ -241,4 +241,5 @@ class RestaurantTable(IdMixin, TimestampMixin, VersionMixin, Base):
     guest_count: Mapped[int] = mapped_column(SmallInteger, default=0)
     server_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     seated_at: Mapped[datetime | None]
+    qr_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # FR-ONL-013; the token itself is shown once
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

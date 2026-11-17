@@ -102,6 +102,10 @@ DEFAULT_SETTINGS: dict[str, dict] = {
     "inventory": {"consumption_point": "Send", "allow_negative_from_sales": True, "expiry_warning_days": 3},
     "orders": {"require_table_for_dine_in": True, "pay_first_order_types": ["Takeaway"]},
     "kitchen": {"printer_fallback_seconds": 15, "late_ticket_minutes": 15},
+    # Online and QR ordering are off until a manager turns them on. Values are placeholders, not SRS figures.
+    "online": {"enabled": False, "paused": False, "auto_accept": False, "lead_minutes": 20, "min_order": "0", "max_qty_per_line": 20, "price_list": None,
+               "pay_later_allowed": True, "tracking_hours": 24},
+    "qr": {"enabled": False, "require_staff_confirmation": True},
     "reservations": {"default_duration_minutes": 90, "buffer_minutes": 15, "hold_minutes": 60, "grace_minutes": 15, "max_party_size": 20, "walkin_warning_minutes": 60},
     "purchasing": {"receipt_tolerance_pct": "5", "price_tolerance_pct": "5", "invoice_tolerance": "1.00", "separate_receiver": False},
     "recipes": {"target_food_cost_pct": "35"},

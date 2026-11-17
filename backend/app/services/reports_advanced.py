@@ -384,7 +384,15 @@ def rpt26(ctx: Ctx, start: date, end: date, f: dict):
     return rows, {"counts": dict(counts), "note": "Negative stock is the current position. Sold-without-recipe covers the same number of days up to today."}
 
 
+def rpt06(ctx: Ctx, start: date, end: date, f: dict):
+    from app.services.branches import comparison
+
+    data = comparison(ctx, start, end, None)
+    return data["rows"], {"consolidated": data["total"], "note": "Branches you are assigned to; needs report.cross_branch (BR-025)."}
+
+
 REPORTS = {
+    "RPT-06": ("Sales by branch", ("report.cross_branch",), rpt06),
     "RPT-05": ("Sales by employee", ("report.financial.view",), rpt05),
     "RPT-08": ("Order volume and AOV", ("report.financial.view",), rpt08),
     "RPT-09": ("Peak-hour analysis", ("report.financial.view", "kitchen.manage"), rpt09),
@@ -418,6 +426,9 @@ def cost_indicators(ctx: Ctx, start: date, end: date, net_sales: Decimal) -> dic
         InventoryTransaction.txn_type.in_(("SALE_CONSUMPTION", "SALE_REVERSAL")))) or ZERO)
     expenses = ctx.db.scalar(select(func.coalesce(func.sum(Expense.amount_base), 0)).where(Expense.branch_id == ctx.branch_id, Expense.expense_date.between(start, end),
                                                                                           Expense.status.in_(("Approved", "Paid")))) or ZERO
-    return {"theoretical_food_cost": q(cogs), "theoretical_food_cost_percent": _pct(cogs, net_sales), "approved_expenses": q(expenses),
-            "indicative_operating_result": {"value": q(net_sales - cogs - expenses),
-                                            "label": "indicative — not accounting profit (net sales − theoretical food cost − approved expenses)"}}
+    from app.services.delivery import platform_commissions
+
+    platform = platform_commissions(ctx, start, end)  # BR-044: a cost, not a discount
+    return {"theoretical_food_cost": q(cogs), "theoretical_food_cost_percent": _pct(cogs, net_sales), "approved_expenses": q(expenses), "platform_commissions": q(platform),
+            "indicative_operating_result": {"value": q(net_sales - cogs - expenses - platform),
+                                            "label": "indicative — not accounting profit (net sales − theoretical food cost − approved expenses − platform commissions)"}}

@@ -22,6 +22,15 @@ class ItemIn(Strict):
     note: str | None = Field(None, max_length=300)
 
 
+class DeliveryIn(Strict):
+    zone_id: uuid.UUID
+    address: str = Field(min_length=3, max_length=500)
+    landmark: str | None = Field(None, max_length=300)
+    latitude: Decimal | None = Field(None, ge=-90, le=90)
+    longitude: Decimal | None = Field(None, ge=-180, le=180)
+    fee_override: Decimal | None = Field(None, ge=0, description="Needs delivery.fee_override; otherwise the zone rule sets the fee")
+
+
 class OrderCreate(Strict):
     order_type: OrderType
     table_id: uuid.UUID | None = None
@@ -31,6 +40,8 @@ class OrderCreate(Strict):
     customer_name: str | None = Field(None, max_length=120)
     customer_phone: str | None = Field(None, max_length=20)
     delivery_address: str | None = None
+    delivery: DeliveryIn | None = Field(None, description="Required for delivery orders (BR-052)")
+    scheduled_at: datetime | None = Field(None, description="Scheduled pickup or delivery time (FR-DLV-001)")
     note: str | None = Field(None, max_length=500)
     items: list[ItemIn] = []
 
@@ -158,6 +169,7 @@ class OrderOut(BaseModel):
     server_user_id: uuid.UUID
     note: str | None
     held_label: str | None
+    scheduled_at: datetime | None = None
     created_at: datetime
     completed_at: datetime | None
     cancelled_at: datetime | None

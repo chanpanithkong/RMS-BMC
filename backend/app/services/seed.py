@@ -27,6 +27,21 @@ def _get_or_create(db: Session, model, lookup: dict, **values):
     return obj
 
 
+SYSTEM_USERNAME = "online.system"
+
+
+def system_user(db: Session) -> User:
+    """Service account that public online and QR orders are recorded under. Inactive, so it can never sign in."""
+    import secrets
+
+    u = db.scalar(select(User).where(User.username == SYSTEM_USERNAME))
+    if u is None:
+        u = User(username=SYSTEM_USERNAME, full_name="Online ordering", password_hash=hash_secret(secrets.token_urlsafe(48)), status="Inactive")
+        db.add(u)
+        db.flush()
+    return u
+
+
 def seed_reference(db: Session) -> dict:
     """Permissions, roles, limits, units, reasons, payment methods, tax profile, price list, rate, restaurant and branch."""
     for code, (module, desc) in PERMISSIONS.items():
@@ -65,7 +80,9 @@ def seed_reference(db: Session) -> dict:
 
     for code, name, kind, cur, ref, change in [("CASH_USD", "Cash USD", "Cash", ["USD"], False, True), ("CASH_KHR", "Cash KHR", "Cash", ["KHR"], False, True),
                                                ("KHQR", "KHQR", "QR", ["USD", "KHR"], True, False), ("BANK_TRANSFER", "Bank Transfer", "Bank", ["USD"], True, False),
-                                               ("CARD", "Card (terminal)", "Card", ["USD"], True, False)]:
+                                               ("CARD", "Card (terminal)", "Card", ["USD"], True, False),
+                                               ("PLATFORM", "Delivery platform (paid by payout)", "Credit", ["USD"], True, False),
+                                               ("ONLINE", "Online payment (gateway)", "Card", ["USD"], True, False)]:
         _get_or_create(db, PaymentMethod, {"code": code}, name=name, kind=kind, currencies=cur, reference_required=ref, change_allowed=change)
 
     profile = _get_or_create(db, TaxProfile, {"code": "STANDARD"}, name="Standard food and beverage")
@@ -92,11 +109,10 @@ def seed_reference(db: Session) -> dict:
     db.add(restaurant)
     db.flush()
     branch = _get_or_create(db, Branch, {"restaurant_id": restaurant.id, "code": "RVS"}, name_en="Riverside", name_km="មាត់ទន្លេ", timezone="Asia/Phnom_Penh", day_end_time=time(4, 0))
-    for i, (code, name) in enumerate([("HOT", "Hot"), ("COLD", "Cold"), ("BEV", "Beverage"), ("DESSERT", "Dessert"), ("BAR", "Bar")]):
-        _get_or_create(db, KitchenStation, {"branch_id": branch.id, "code": code}, name=name, is_default=i == 0, warn_minutes=10, critical_minutes=20)
-    for name in ("Dry store", "Chiller", "Freezer", "Bar"):
-        _get_or_create(db, InventoryLocation, {"branch_id": branch.id, "name": name})
-    db.flush()
+    from app.services.branches import setup_branch_basics
+
+    setup_branch_basics(db, branch)
+    system_user(db)
     return {"restaurant": restaurant, "branch": branch, "roles": roles, "tax_profile": profile}
 
 

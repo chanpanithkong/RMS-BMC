@@ -76,6 +76,11 @@ PERMISSIONS: dict[str, tuple[str, str]] = {
     "employees.manage": ("STAFF", "Manage employees, departments, schedules"),
     "promotions.view": ("PROMO", "View promotions"),
     "promotions.manage": ("PROMO", "Create and edit promotions and codes"),
+    "delivery.view": ("DLV", "View deliveries, zones and platform orders"),
+    "delivery.manage": ("DLV", "Assign riders, update deliveries, record platform orders"),
+    "delivery.operate": ("DLV", "Rider: see and update own deliveries"),
+    "delivery.fee_override": ("DLV", "Override the zone delivery fee"),
+    "platform.reconcile": ("DLV", "Record and reconcile platform settlements"),
 }
 
 _VIEW_ALL = [p for p in PERMISSIONS if p.endswith(".view") or p in ("report.financial.view", "report.export", "audit.export", "orders.view_all")]
@@ -125,6 +130,14 @@ PHASE2_GRANTS: dict[str, list[str]] = {
     "PUROFF": ["suppliers.view", "suppliers.manage", "purchases.view", "purchases.request", "purchases.create", "expenses.view", "expenses.create"],
     "ACCT": ["customers.view", "recipes.view", "suppliers.view", "purchases.view", "supplier_payments.create", "expenses.view", "expenses.create", "expenses.pay", "promotions.view"],
 }
+PHASE2_GRANTS["SYSADMIN"].append("delivery.view")
+# Phase 3 delivery (DLV). RIDER is the SRS's "WAITER-type role with delivery permissions".
+for _r, _p in {"GM": ["delivery.view", "delivery.manage", "delivery.fee_override", "platform.reconcile"],
+               "BRMGR": ["delivery.view", "delivery.manage", "delivery.fee_override", "platform.reconcile"],
+               "SUPV": ["delivery.view", "delivery.manage", "delivery.fee_override"], "CASHIER": ["delivery.view", "delivery.manage"],
+               "ACCT": ["delivery.view", "platform.reconcile"]}.items():
+    PHASE2_GRANTS.setdefault(_r, []).extend(_p)
+ROLE_GRANTS["RIDER"] = ["delivery.operate"]
 for role, extra in PHASE2_GRANTS.items():
     ROLE_GRANTS[role].extend(extra)
 ROLE_GRANTS["AUDITOR"].extend(p for p in ("customers.view", "reservations.view", "recipes.view", "suppliers.view", "purchases.view", "expenses.view", "employees.view", "promotions.view")
@@ -135,7 +148,7 @@ for grants in ROLE_GRANTS.values():
 ROLE_NAMES = {
     "SYSADMIN": "System Administrator", "OWNER": "Restaurant Owner", "GM": "General Manager", "BRMGR": "Branch Manager", "SUPV": "Restaurant Supervisor",
     "CASHIER": "Cashier", "WAITER": "Waiter", "KMGR": "Kitchen Manager", "COOK": "Chef or Cook", "BAR": "Bartender", "INVOFF": "Inventory Officer",
-    "PUROFF": "Purchasing Officer", "ACCT": "Accountant", "AUDITOR": "Auditor",
+    "PUROFF": "Purchasing Officer", "ACCT": "Accountant", "AUDITOR": "Auditor", "RIDER": "Delivery Rider",
 }
 
 _INF = Decimal("999999")

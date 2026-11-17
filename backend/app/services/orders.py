@@ -81,7 +81,14 @@ def calculation(db: Session, order: Order):
     lines = [LineInput(str(i.id), i.unit_price_snapshot, i.modifiers_total, i.quantity, i.tax_profile_id_snapshot,
                        discounts[i.id].kind if i.id in discounts else None, discounts[i.id].value if i.id in discounts else None) for i in items]
     od = discounts.get(None)
-    return calculate(lines, order.order_type, charge_rules(db, {i.tax_profile_id_snapshot for i in items}), od.kind if od else None, od.value if od else None, order.delivery_fee)
+    fee_rules = []
+    if order.order_type == "Delivery" and order.delivery_fee > 0:
+        from app.models import Delivery, DeliveryZone
+
+        profile = db.scalar(select(DeliveryZone.tax_profile_id).join(Delivery, Delivery.zone_id == DeliveryZone.id).where(Delivery.order_id == order.id))
+        fee_rules = charge_rules(db, {profile}).get(profile, []) if profile else []
+    return calculate(lines, order.order_type, charge_rules(db, {i.tax_profile_id_snapshot for i in items}), od.kind if od else None, od.value if od else None,
+                     order.delivery_fee, fee_rules=fee_rules)
 
 
 def recalc(ctx: Ctx, order: Order) -> None:
@@ -89,6 +96,10 @@ def recalc(ctx: Ctx, order: Order) -> None:
     from app.services import promotions
 
     promotions.reconcile(ctx, order)
+    if order.order_type == "Delivery":
+        from app.services import delivery
+
+        delivery.refresh_fee(ctx, order)  # zone fee rules follow the food subtotal (FR-DLV-003)
     result = calculation(ctx.db, order)
     by_key = {r.key: r for r in result.lines}
     for i in order.items:
@@ -96,6 +107,14 @@ def recalc(ctx: Ctx, order: Order) -> None:
         i.line_gross, i.line_discount, i.line_net = (r.gross, r.item_discount + r.order_discount, r.net) if r else (ZERO, ZERO, ZERO)
     order.gross_total, order.discount_total, order.subtotal = result.gross_total, result.discount_total, result.subtotal
     order.service_charge_total, order.tax_total, order.grand_total = result.service_charge_total, result.tax_total, result.total
+    order.delivery_fee = result.delivery_fee
+    if order.channel == "Platform":
+        from app.models import PlatformOrder
+        from app.services import delivery
+
+        po = ctx.db.scalar(select(PlatformOrder).where(PlatformOrder.order_id == order.id))
+        if po is not None:
+            delivery.update_commission(ctx, po, order)  # a rate-based commission follows the order total (BR-044)
     refresh_statuses(ctx, order)
 
 
@@ -178,7 +197,7 @@ def create_order(ctx: Ctx, data: dict) -> Order:
     order = Order(branch_id=ctx.branch_id, business_date=bdate, order_no=f"{seq:04d}", order_type=data["order_type"], channel=data.get("channel", "POS"),
                   table_id=table.id if table else None, table_tag=data.get("table_tag"), customer_name=data.get("customer_name"), customer_phone=data.get("customer_phone"),
                   pickup_name=data.get("pickup_name"), delivery_address=data.get("delivery_address"), guest_count=data.get("guest_count"),
-                  server_user_id=ctx.user_id, note=data.get("note"), idempotency_key=data.get("idempotency_key"), delivery_fee=data.get("delivery_fee") or ZERO)
+                  server_user_id=ctx.user_id, note=data.get("note"), idempotency_key=data.get("idempotency_key"), scheduled_at=data.get("scheduled_at"))
     db.add(order)
     db.flush()
     if table is not None:
@@ -188,6 +207,13 @@ def create_order(ctx: Ctx, data: dict) -> Order:
     log_event(ctx, order, "created", {"order_type": order.order_type, "table": table.table_code if table else None})
     for item in data.get("items", []):
         add_item(ctx, order, item)
+    if order.order_type == "Delivery" and order.channel != "Platform":
+        from app.services import delivery
+
+        if not data.get("delivery"):
+            raise BusinessRuleError("DELIVERY_DETAILS_REQUIRED", "Delivery orders need a zone, address and phone number (BR-052).",
+                                    details=[{"field": "delivery", "issue": "required"}])
+        delivery.attach(ctx, order, data["delivery"])
     recalc(ctx, order)
     audit(db, ctx, "order.create", "Order", order.id, after={"order_no": order.order_no, "type": order.order_type, "table_id": order.table_id})
     emit(db, f"branch:{ctx.branch_id}", "order.created", {"order_id": str(order.id), "order_no": order.order_no})
@@ -202,7 +228,14 @@ def add_item(ctx: Ctx, order: Order, data: dict) -> OrderItem:
     reason = menu_svc.availability(db, ctx.branch_id, item)
     if reason:
         raise BusinessRuleError("ITEM_UNAVAILABLE", f"{item.name_en} can't be sold right now: {reason}.", details=[{"field": "variant_id", "issue": reason}])
-    price = menu_svc.current_price(db, variant.id, ctx.branch_id, menu_svc.price_list_id(db, None, ctx.branch_id))
+    list_code = None
+    if order.channel in ("Online", "QR"):
+        # FR-ONL-001: only items published to the channel, at the online price list when one is configured
+        allowed = ("Online",) if order.channel == "Online" else ("QR", "Online")
+        if not set(item.channels or []) & set(allowed):
+            raise BusinessRuleError("ITEM_UNAVAILABLE", f"{item.name_en} isn't sold online.", details=[{"field": "variant_id", "issue": "not on this channel"}])
+        list_code = get_setting(db, "online", ctx.branch_id).get("price_list")
+    price = menu_svc.current_price(db, variant.id, ctx.branch_id, menu_svc.price_list_id(db, list_code, ctx.branch_id))
     if price is None:
         raise BusinessRuleError("PRICE_MISSING", f"{item.name_en} ({variant.name_en}) has no current price.")
     modifiers = validate_modifiers(db, item, data.get("modifiers") or [])
@@ -286,8 +319,17 @@ def send(ctx: Ctx, order: Order) -> dict:
         raise BusinessRuleError("PICKUP_NAME_REQUIRED", "Enter a pickup name or number.", details=[{"field": "pickup_name", "issue": "required"}])
     if order.order_type == "Delivery" and not (order.customer_phone and order.delivery_address):
         raise BusinessRuleError("DELIVERY_DETAILS_REQUIRED", "Delivery orders need a phone number and address.")
+    if order.order_type == "Delivery":
+        from app.services import delivery
+
+        delivery.check_minimum(ctx, order)
     # FR-POS-017 pay-first
-    if order.order_type in rules.get("pay_first_order_types", []) and order.payment_status != "Paid":
+    staff_accepted = False
+    if order.channel in ("Online", "QR"):
+        from app.models import OnlineOrder
+
+        staff_accepted = db.scalar(select(OnlineOrder.status).where(OnlineOrder.order_id == order.id)) == "Accepted"  # accepted online orders may pay at pickup
+    if order.order_type in rules.get("pay_first_order_types", []) and order.payment_status != "Paid" and not staff_accepted:
         raise AppError("PAYMENT_REQUIRED_FIRST", f"{order.order_type} orders are paid before they go to the kitchen.", 409)
     # BR-003 re-check availability at submission
     for i in pending:
@@ -394,6 +436,10 @@ def cancel_order(ctx: Ctx, order: Order, reason: str, approval_id: uuid.UUID | N
     for b in db.scalars(select(Bill).where(Bill.order_id == order.id, Bill.status == "Open")):
         b.status = "Void"
     order.order_status, order.cancelled_at, order.cancel_reason = "Cancelled", utcnow(), reason
+    if order.order_type == "Delivery":
+        from app.services import delivery
+
+        delivery.on_order_cancelled(ctx, order)
     db.flush()
     recalc(ctx, order)
     if order.table_id:

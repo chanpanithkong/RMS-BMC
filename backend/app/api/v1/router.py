@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, config, front, inventory, kitchen_tables, menu, money, orders, platform, promotions, purchasing, recipes_stock, reports_ws, staff_expenses, users
+from app.api.v1.endpoints import auth, branches, config, delivery, online, front, inventory, kitchen_tables, menu, money, orders, platform, promotions, purchasing, recipes_stock, reports_ws, staff_expenses, users
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
@@ -27,3 +27,7 @@ api_router.include_router(recipes_stock.recipes)
 api_router.include_router(recipes_stock.stock)
 api_router.include_router(purchasing.router)
 api_router.include_router(promotions.router)
+api_router.include_router(branches.router)
+api_router.include_router(delivery.router)
+api_router.include_router(online.public)
+api_router.include_router(online.router)

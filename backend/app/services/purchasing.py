@@ -29,7 +29,15 @@ def _get(ctx: Ctx, model, oid: uuid.UUID, lock: bool = False, branch: bool = Tru
 
 
 def supplier(ctx: Ctx, sid: uuid.UUID) -> Supplier:
-    return _get(ctx, Supplier, sid, branch=False)
+    s = _get(ctx, Supplier, sid, branch=False)
+    if s.branch_ids and str(ctx.branch_id) not in s.branch_ids:
+        raise NotFound("Supplier")  # restricted to other branches (FR-BRN-005)
+    return s
+
+
+def supplier_visible(ctx: Ctx):
+    """SQL filter: shared suppliers plus those restricted to this branch."""
+    return (func.cardinality(Supplier.branch_ids) == 0) | Supplier.branch_ids.any(str(ctx.branch_id))
 
 
 # ---------------------------------------------------------------- requests (FR-PUR-002)

@@ -9,7 +9,7 @@ from pydantic import EmailStr, Field
 from sqlalchemy import func, select
 
 from app.core.dependencies import Ctx, require
-from app.core.exceptions import Conflict
+from app.core.exceptions import Conflict, Forbidden
 from app.models import GoodsReceipt, PurchaseOrder, PurchaseRequest, PurchaseReturn, Supplier, SupplierInvoice, SupplierItem
 from app.schemas.common import Strict
 from app.services import purchasing as svc
@@ -29,6 +29,7 @@ class SupplierIn(Strict):
     tax_id: str | None = None
     payment_terms: str = "Net 30"
     currency: Literal["USD", "KHR"] = "USD"
+    branch_ids: list[uuid.UUID] = Field([], description="Empty = shared by all branches (FR-BRN-005)")
 
 
 class SupplierPatch(Strict):
@@ -39,6 +40,7 @@ class SupplierPatch(Strict):
     tax_id: str | None = None
     payment_terms: str | None = None
     status: Literal["Active", "Inactive"] | None = None
+    branch_ids: list[uuid.UUID] | None = None
 
 
 class RequestLine(Strict):
@@ -121,7 +123,7 @@ class SupplierPaymentIn(Strict):
 
 
 def sup_out(s: Supplier) -> dict:
-    return {k: getattr(s, k) for k in ("id", "name", "contact_person", "phone", "email", "address", "tax_id", "payment_terms", "currency", "status")}
+    return {k: getattr(s, k) for k in ("id", "name", "contact_person", "phone", "email", "address", "tax_id", "payment_terms", "currency", "status", "branch_ids")}
 
 
 def po_out(po: PurchaseOrder) -> dict:
@@ -144,9 +146,16 @@ def inv_out(i: SupplierInvoice) -> dict:
 
 
 # ---------------------------------------------------------------- suppliers
+def _branch_ids(ctx: Ctx, ids: list[uuid.UUID]) -> list[str]:
+    mine = {b.id for b in ctx.user.branches}
+    if set(ids) - mine:
+        raise Forbidden("You can only restrict suppliers to branches you're assigned to.", code="BRANCH_FORBIDDEN")
+    return sorted(str(i) for i in ids)
+
+
 @router.get("/suppliers")
 def suppliers(ctx: SView, q: str | None = None, status: str | None = None):
-    stmt = select(Supplier)
+    stmt = select(Supplier).where(svc.supplier_visible(ctx))
     if q:
         stmt = stmt.where(Supplier.name.ilike(f"%{q}%"))
     if status:
@@ -158,7 +167,9 @@ def suppliers(ctx: SView, q: str | None = None, status: str | None = None):
 def create_supplier(body: SupplierIn, ctx: Annotated[Ctx, Depends(require("suppliers.manage"))]):
     if ctx.db.scalar(select(Supplier.id).where(func.lower(Supplier.name) == body.name.lower())):
         raise Conflict("SUPPLIER_EXISTS", "A supplier with this name already exists.")
-    s = Supplier(**body.model_dump())
+    data = body.model_dump()
+    data["branch_ids"] = _branch_ids(ctx, data["branch_ids"])
+    s = Supplier(**data)
     ctx.db.add(s)
     ctx.db.flush()
     audit(ctx.db, ctx, "supplier.create", "Supplier", s.id, after=body.model_dump())
@@ -169,6 +180,8 @@ def create_supplier(body: SupplierIn, ctx: Annotated[Ctx, Depends(require("suppl
 def update_supplier(supplier_id: uuid.UUID, body: SupplierPatch, ctx: Annotated[Ctx, Depends(require("suppliers.manage"))]):
     s = svc.supplier(ctx, supplier_id)
     data = body.model_dump(exclude_unset=True)
+    if data.get("branch_ids") is not None:
+        data["branch_ids"] = _branch_ids(ctx, data["branch_ids"])
     before = {k: getattr(s, k) for k in data}
     for k, v in data.items():
         setattr(s, k, v)

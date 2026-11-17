@@ -30,7 +30,7 @@ def order_out(ctx: Ctx, order: Order) -> dict:
     paid = svc.paid_total(ctx.db, order)
     return {**{c: getattr(order, c) for c in ("id", "order_no", "business_date", "version", "order_type", "channel", "order_status", "kitchen_status", "payment_status",
                                               "table_id", "table_tag", "guest_count", "pickup_name", "customer_name", "customer_phone", "delivery_address", "server_user_id",
-                                              "note", "held_label", "created_at", "completed_at", "cancelled_at", "cancel_reason")},
+                                              "note", "held_label", "scheduled_at", "created_at", "completed_at", "cancelled_at", "cancel_reason")},
             "table_code": table_code, "items": order.items, "discounts": discounts,
             "totals": {"gross": order.gross_total, "discount_total": order.discount_total, "subtotal": order.subtotal, "service_charge": order.service_charge_total,
                        "tax": order.tax_total, "delivery_fee": order.delivery_fee, "rounding": order.rounding_total, "grand_total": order.grand_total, "paid": paid,

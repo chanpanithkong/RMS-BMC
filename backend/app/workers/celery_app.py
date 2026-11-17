@@ -32,6 +32,15 @@ def handle(event: OutboxEvent, mailer: EmailSender) -> None:
             mailer.send(event.payload["email"], "Reset your RMS password", f"Use this link within 30 minutes:\n{link}\n\nIf you didn't ask for this, ignore this email.")
     elif event.event_type == "email.purchase_order":
         mailer.send(event.payload["email"], f"Purchase order {event.payload['po_no']}", purchase_order_text(event.payload))
+    elif event.event_type == "email.online_order_confirmation":  # FR-ONL-008
+        p = event.payload
+        mailer.send(p["email"], f"Order {p['order_no']} received – {p['branch']}",
+                    f"Thank you. We've received your {p['fulfilment'].lower()} order {p['order_no']} for {p['total']} {p['currency']}.\n"
+                    f"Follow it here: {p['tracking_url']}\n\nThe link stops working after a while for your privacy.")
+    elif event.event_type == "email.online_order_rejected":
+        p = event.payload
+        mailer.send(p["email"], f"Order {p['order_no']} couldn't be accepted – {p['branch']}",
+                    f"Sorry, {p['branch']} couldn't accept order {p['order_no']}: {p['reason']}.")
     else:
         # Not delivered: leave it unprocessed and visible rather than dropping it silently.
         raise ValueError(f"No outbox handler for {event.event_type}")

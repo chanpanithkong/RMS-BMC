@@ -43,7 +43,7 @@ APPEND_ONLY = ("audit_logs", "inventory_transactions")
 
 TEST_USERS = [("owner", ["OWNER"], "4821"), ("gm", ["GM"], "5937"), ("admin", ["SYSADMIN"], None), ("supv", ["SUPV"], "7314"),
               ("cashier", ["CASHIER"], "2468"), ("cashier2", ["CASHIER"], "1357"), ("waiter", ["WAITER"], "8642"), ("kmgr", ["KMGR"], "9753"),
-              ("cook", ["COOK"], "3691"), ("invoff", ["INVOFF"], "1593"), ("acct", ["ACCT"], "7539"), ("auditor", ["AUDITOR"], None), ("puroff", ["PUROFF"], "2580"), ("brmgr", ["BRMGR"], "6174")]
+              ("cook", ["COOK"], "3691"), ("invoff", ["INVOFF"], "1593"), ("acct", ["ACCT"], "7539"), ("auditor", ["AUDITOR"], None), ("puroff", ["PUROFF"], "2580"), ("brmgr", ["BRMGR"], "6174"), ("rider", ["RIDER"], None)]
 _SEED: dict = {}
 TABLES = [t.name for t in Base.metadata.sorted_tables]
 

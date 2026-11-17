@@ -45,6 +45,7 @@ class Order(IdMixin, TimestampMixin, VersionMixin, Base):
     customer_phone: Mapped[str | None] = mapped_column(String(20))
     pickup_name: Mapped[str | None] = mapped_column(String(60))
     delivery_address: Mapped[str | None] = mapped_column(Text)
+    scheduled_at: Mapped[datetime | None]  # scheduled pickup or delivery time (FR-DLV-001, A3)
     guest_count: Mapped[int | None] = mapped_column(SmallInteger)
     server_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_device_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("devices.id"))

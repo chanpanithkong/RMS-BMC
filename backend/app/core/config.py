@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = ""
     DEFAULT_TIMEZONE: str = "Asia/Phnom_Penh"
 
+    # Online ordering (Phase 3). No real payment provider is integrated yet (V-06): "sandbox" is a test gateway
+    # that is refused when APP_ENV=production. Leave PAYMENT_GATEWAY empty to offer pay-at-pickup/delivery only.
+    PAYMENT_GATEWAY: str = ""
+    PAYMENT_SANDBOX_SECRET: str = ""
+    PUBLIC_RATE_LIMIT_PER_MINUTE: int = 60
+
     @model_validator(mode="after")
     def _resolve(self) -> "Settings":
         if not self.DATABASE_URL:

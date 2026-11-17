@@ -74,7 +74,8 @@ def discount_amount(kind: str | None, value: Decimal | None, base: Decimal) -> D
 
 
 def calculate(lines: list[LineInput], order_type: str, rules_by_profile: dict[object, list[ChargeRule]], order_discount_kind: str | None = None,
-              order_discount_value: Decimal | None = None, delivery_fee: Decimal = ZERO, currency: str = "USD") -> BillResult:
+              order_discount_value: Decimal | None = None, delivery_fee: Decimal = ZERO, currency: str = "USD",
+              fee_rules: list[ChargeRule] | tuple = ()) -> BillResult:
     # Steps 1–3: line gross, item discounts.
     results: list[LineResult] = []
     for ln in lines:
@@ -134,6 +135,18 @@ def calculate(lines: list[LineInput], order_type: str, rules_by_profile: dict[ob
         else:
             amount = q(base * rule.rate, currency)
         charges.append(ChargeResult("Tax", rule.name, rule.rate, base, amount, rule.rule_id, rule.inclusive))
+        tax_total += amount
+
+    # BR-044: the delivery fee is a separate charge taxed by its own profile (not part of the food subtotal or its service charge).
+    for rule in fee_rules:
+        if rule.charge_kind != "Tax" or order_type not in rule.order_types or delivery_fee <= 0:
+            continue
+        if rule.inclusive:
+            amount = q(delivery_fee * rule.rate / (1 + rule.rate), currency)
+            inclusive_tax += amount
+        else:
+            amount = q(delivery_fee * rule.rate, currency)
+        charges.append(ChargeResult("Tax", f"{rule.name} (delivery fee)", rule.rate, delivery_fee, amount, rule.rule_id, rule.inclusive))
         tax_total += amount
 
     exclusive_tax = tax_total - inclusive_tax
