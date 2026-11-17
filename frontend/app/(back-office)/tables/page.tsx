@@ -1,0 +1,490 @@
+"use client"
+
+import * as React from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import {
+  AlertTriangle,
+  Armchair,
+  Ban,
+  Brush,
+  CalendarClock,
+  Check,
+  ClipboardList,
+  Combine,
+  Hourglass,
+  PencilRuler,
+  ReceiptText,
+  Soup,
+  UserRoundCheck,
+  Users,
+  Wrench,
+} from "lucide-react"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { confirmAction } from "@/components/rms/dialog-host"
+import {
+  FormRow,
+  LinkButton,
+  Notice,
+  Page,
+  PageHeader,
+  QuantityStepper,
+  SimpleSelect,
+  Stat,
+  opts,
+} from "@/components/rms/kit"
+import { initials, minLabel, rms, useClock, useRms } from "@/lib/rms/store"
+import type { FloorTable, TableState } from "@/lib/rms/types"
+import { cn } from "@/lib/utils"
+
+const stateStyle: Record<
+  TableState | "Out of Service",
+  { cls: string; icon: typeof Check }
+> = {
+  Available: {
+    cls: "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
+    icon: Check,
+  },
+  Reserved: {
+    cls: "border-violet-500 bg-violet-50 text-violet-900 dark:bg-violet-950 dark:text-violet-100",
+    icon: CalendarClock,
+  },
+  Seated: {
+    cls: "border-sky-500 bg-sky-50 text-sky-900 dark:bg-sky-950 dark:text-sky-100",
+    icon: Users,
+  },
+  Ordering: {
+    cls: "border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
+    icon: ClipboardList,
+  },
+  Served: {
+    cls: "border-teal-500 bg-teal-50 text-teal-900 dark:bg-teal-950 dark:text-teal-100",
+    icon: Soup,
+  },
+  "Awaiting Payment": {
+    cls: "border-orange-600 bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-100",
+    icon: ReceiptText,
+  },
+  Cleaning: {
+    cls: "border-slate-400 bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100",
+    icon: Brush,
+  },
+  "Out of Service": {
+    cls: "border-zinc-400 border-dashed bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+    icon: Wrench,
+  },
+}
+
+function TableTile({ t, onClick }: { t: FloorTable; onClick: () => void }) {
+  const at = useClock()
+  const label: TableState | "Out of Service" = t.outOfService
+    ? "Out of Service"
+    : t.state
+  const s = stateStyle[label]
+  return (
+    <button
+      onClick={onClick}
+      style={{ left: `${t.x}%`, top: `${t.y}%` }}
+      aria-label={`Table ${t.code}, ${label}`}
+      className={cn(
+        "absolute flex flex-col justify-between border-2 p-1.5 text-left shadow-sm transition-transform hover:scale-[1.03]",
+        s.cls,
+        t.shape === "round"
+          ? "h-24 w-24 items-center rounded-full text-center"
+          : t.shape === "rect"
+            ? "h-24 w-44 rounded-xl"
+            : "h-24 w-28 rounded-xl"
+      )}
+    >
+      <span className="flex w-full items-center justify-between gap-1 font-bold">
+        <span className={cn(t.shape === "round" && "mx-auto")}>{t.code}</span>
+        {t.shape !== "round" && (
+          <span className="flex items-center gap-1 text-[11px] font-medium">
+            {t.flagged && <AlertTriangle className="size-3.5 text-danger" />}
+            {t.server && initials(t.server)}
+          </span>
+        )}
+      </span>
+      <span className="text-[11px] leading-tight font-medium">
+        <s.icon className="mr-0.5 inline size-3" aria-hidden />
+        {label}
+      </span>
+      <span className="tabular text-[11px]">
+        {t.guests > 0 ? `${t.guests}/${t.capacity}` : `${t.capacity} seats`}
+        {t.seatedAt !== undefined && ` · ${minLabel(at - t.seatedAt)}`}
+      </span>
+    </button>
+  )
+}
+
+export default function FloorPlanPage() {
+  const { tables, userName } = useRms()
+  const router = useRouter()
+  const areas = [...new Set(tables.map((t) => t.area))]
+  const [area, setArea] = React.useState("Indoor")
+  const [selId, setSelId] = React.useState<string | null>(null)
+  const [guests, setGuests] = React.useState(2)
+  const [mode, setMode] = React.useState<"main" | "transfer" | "combine">(
+    "main"
+  )
+  const [target, setTarget] = React.useState("")
+  const sel = tables.find((t) => t.id === selId)
+  const close = () => {
+    setSelId(null)
+    setMode("main")
+    setTarget("")
+  }
+
+  const active = tables.filter((t) => !t.outOfService)
+  const occ = active.filter((t) =>
+    ["Seated", "Ordering", "Served", "Awaiting Payment"].includes(t.state)
+  )
+  const seats = active.reduce((s, t) => s + t.capacity, 0)
+  const seated = active.reduce((s, t) => s + t.guests, 0)
+  const flagged = tables.filter((t) => t.flagged)
+  const free = tables.filter(
+    (t) => t.state === "Available" && !t.outOfService && t.id !== selId
+  )
+
+  const seat = () => {
+    if (!sel) return
+    const go = () => {
+      rms.seat(sel.code, guests, userName.split(" ")[0])
+      toast.success(`Seated at ${sel.code}`)
+      router.push(`/pos?table=${sel.code}&guests=${guests}`)
+    }
+    if (guests > sel.capacity)
+      confirmAction({
+        title: "Party is larger than this table",
+        effect: `${guests} guests at a table for ${sel.capacity}. Seat them anyway?`,
+        confirmLabel: "Seat anyway",
+        onConfirm: go,
+      })
+    else if (sel.state === "Reserved")
+      confirmAction({
+        title: "This table is reserved",
+        effect: `${sel.upcoming}. Seating a walk-in may delay that reservation.`,
+        confirmLabel: "Seat anyway",
+        onConfirm: go,
+      })
+    else go()
+  }
+
+  return (
+    <Page>
+      <PageHeader
+        title="Floor plan"
+        description="Live table status. Select a table to seat guests, transfer, combine or take it out of service."
+        actions={
+          <LinkButton href="/tables/editor" variant="outline">
+            <PencilRuler />
+            Edit layout
+          </LinkButton>
+        }
+      />
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat
+          label="Table occupancy"
+          value={`${Math.round((occ.length / active.length) * 100)}%`}
+          icon={Armchair}
+          hint={`${occ.length} of ${active.length} tables`}
+        />
+        <Stat
+          label="Seat occupancy"
+          value={`${Math.round((seated / seats) * 100)}%`}
+          icon={Users}
+          hint={`${seated} of ${seats} seats`}
+        />
+        <Stat
+          label="Awaiting payment"
+          value={tables.filter((t) => t.state === "Awaiting Payment").length}
+          icon={ReceiptText}
+        />
+        <Stat
+          label="Being cleaned"
+          value={tables.filter((t) => t.state === "Cleaning").length}
+          icon={Hourglass}
+        />
+      </section>
+      {flagged.map((t) => (
+        <Notice key={t.id} tone="danger">
+          <span>
+            Table {t.code} is Available but still linked to an open order.{" "}
+            <button
+              className="underline"
+              onClick={() => {
+                rms.clearFlag(t.code)
+                toast.success("Flag cleared")
+              }}
+            >
+              Resolve
+            </button>
+          </span>
+        </Notice>
+      ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg bg-muted p-1">
+          {areas.map((a) => (
+            <button
+              key={a}
+              aria-current={a === area ? "true" : undefined}
+              onClick={() => setArea(a)}
+              className={cn(
+                "rounded-md px-3 py-1 text-sm font-medium",
+                a === area ? "bg-background shadow-sm" : "text-muted-foreground"
+              )}
+            >
+              {a}
+            </button>
+          ))}
+        </div>
+        <ul
+          className="ml-auto flex flex-wrap gap-x-3 gap-y-1 text-xs"
+          aria-label="Legend"
+        >
+          {Object.entries(stateStyle).map(([k, v]) => (
+            <li key={k} className="flex items-center gap-1">
+              <span
+                className={cn(
+                  "inline-flex size-4 items-center justify-center rounded border",
+                  v.cls
+                )}
+              >
+                <v.icon className="size-2.5" />
+              </span>
+              {k}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <div className="relative h-[520px] min-w-[840px] bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:20px_20px]">
+          {tables
+            .filter((t) => t.area === area)
+            .map((t) => (
+              <TableTile
+                key={t.id}
+                t={t}
+                onClick={() => {
+                  setSelId(t.id)
+                  setGuests(Math.min(2, t.capacity))
+                }}
+              />
+            ))}
+        </div>
+      </div>
+
+      <Dialog open={!!sel} onOpenChange={(o) => !o && close()}>
+        <DialogContent className="sm:max-w-md">
+          {sel && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Table {sel.code}</DialogTitle>
+                <DialogDescription>
+                  {sel.outOfService
+                    ? `Out of service: ${sel.outOfService}`
+                    : `${sel.state} · ${sel.area} · ${sel.capacity} seats${sel.server ? ` · ${sel.server}` : ""}${sel.group ? ` · group ${sel.group}` : ""}`}
+                </DialogDescription>
+              </DialogHeader>
+              {sel.upcoming && (
+                <Notice tone="info">Upcoming: {sel.upcoming}</Notice>
+              )}
+              {mode !== "main" ? (
+                <>
+                  <FormRow
+                    label={
+                      mode === "transfer" ? "Move party to" : "Combine with"
+                    }
+                    required
+                  >
+                    <SimpleSelect
+                      aria-label="Target table"
+                      value={target}
+                      onChange={setTarget}
+                      options={opts(...free.map((t) => t.code))}
+                      placeholder="Choose a table…"
+                    />
+                  </FormRow>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setMode("main")}>
+                      Back
+                    </Button>
+                    <Button
+                      disabled={!target}
+                      onClick={() => {
+                        if (mode === "transfer") {
+                          rms.transferTable(sel.code, target)
+                          toast.success(`Party moved to ${target}`)
+                        } else {
+                          rms.combineTables([sel.code, target])
+                          toast.success(`${sel.code} and ${target} combined`)
+                        }
+                        close()
+                      }}
+                    >
+                      {mode === "transfer" ? "Move party" : "Combine"}
+                    </Button>
+                  </DialogFooter>
+                </>
+              ) : sel.outOfService ? (
+                <DialogFooter>
+                  <Button
+                    onClick={() => {
+                      rms.setOutOfService(sel.code)
+                      toast.success("Back in service")
+                      close()
+                    }}
+                  >
+                    Return to service
+                  </Button>
+                </DialogFooter>
+              ) : (
+                <>
+                  {(sel.state === "Available" || sel.state === "Reserved") && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Guests</span>
+                      <QuantityStepper
+                        value={guests}
+                        onChange={setGuests}
+                        min={1}
+                        size="lg"
+                        label="guests"
+                      />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    {(sel.state === "Available" ||
+                      sel.state === "Reserved") && (
+                      <Button className="col-span-2 h-11" onClick={seat}>
+                        <UserRoundCheck />
+                        Seat and open order
+                      </Button>
+                    )}
+                    {[
+                      "Seated",
+                      "Ordering",
+                      "Served",
+                      "Awaiting Payment",
+                    ].includes(sel.state) && (
+                      <>
+                        <Button
+                          className="col-span-2 h-11"
+                          onClick={() =>
+                            router.push(
+                              sel.orderId
+                                ? `/pos?order=${sel.orderId}`
+                                : `/pos?table=${sel.code}&guests=${sel.guests}`
+                            )
+                          }
+                        >
+                          <ClipboardList />
+                          Open order
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-11"
+                          onClick={() => setMode("transfer")}
+                        >
+                          Transfer party
+                        </Button>
+                        {sel.orderId && sel.state !== "Awaiting Payment" && (
+                          <Button
+                            variant="outline"
+                            className="h-11"
+                            onClick={() => {
+                              rms.printBill(sel.orderId!)
+                              toast.success("Bill printed")
+                              close()
+                            }}
+                          >
+                            Print bill
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {sel.state === "Cleaning" && (
+                      <Button
+                        className="col-span-2 h-11"
+                        onClick={() => {
+                          rms.setTableState(sel.code, "Available")
+                          toast.success(`${sel.code} is available`)
+                          close()
+                        }}
+                      >
+                        <Check />
+                        Cleaning done
+                      </Button>
+                    )}
+                    {sel.group ? (
+                      <Button
+                        variant="outline"
+                        className="h-11"
+                        onClick={() => {
+                          rms.splitGroup(sel.group!)
+                          toast.success("Group split")
+                          close()
+                        }}
+                      >
+                        Split group
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="h-11"
+                        onClick={() => setMode("combine")}
+                      >
+                        <Combine />
+                        Combine
+                      </Button>
+                    )}
+                    {sel.state === "Available" && (
+                      <Button
+                        variant="destructive"
+                        className="h-11"
+                        onClick={() => {
+                          const code = sel.code
+                          close()
+                          confirmAction({
+                            title: `Take ${code} out of service?`,
+                            effect:
+                              "It can't be seated until it's returned to service.",
+                            reasons: [
+                              "Broken furniture",
+                              "Maintenance",
+                              "Private event",
+                            ],
+                            destructive: true,
+                            confirmLabel: "Take out of service",
+                            onConfirm: (r) => rms.setOutOfService(code, r),
+                          })
+                        }}
+                      >
+                        <Ban />
+                        Out of service
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+              <Link
+                href="/reservations"
+                className="text-center text-xs text-muted-foreground hover:underline"
+              >
+                View reservations
+              </Link>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Page>
+  )
+}
