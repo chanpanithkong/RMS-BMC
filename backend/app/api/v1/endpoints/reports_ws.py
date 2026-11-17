@@ -3,11 +3,12 @@ import csv
 import io
 import uuid
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.core.database import session_factory
 from app.core.dependencies import Ctx, authenticate, load_permissions, require
@@ -17,12 +18,23 @@ from app.services import reports as svc
 from app.services.platform import audit
 
 router = APIRouter(tags=["reports"])
+
+
+class ReportFilters(BaseModel):
+    """Optional filters (FR-RPT-022); each report uses the ones that apply to it."""
+
+    user_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
+    supplier_id: uuid.UUID | None = None
+    station_code: str | None = None
+    category: str | None = None
 ws_router = APIRouter(tags=["realtime"])
 
 
 @router.get("/dashboard", summary="Widgets permitted for your role; financial values need report.financial.view (FR-DASH-001)")
-def dashboard(ctx: Annotated[Ctx, Depends(require("dashboard.view"))], date_from: date | None = None, date_to: date | None = None):
-    return svc.dashboard(ctx, date_from, date_to)
+def dashboard(ctx: Annotated[Ctx, Depends(require("dashboard.view"))], date_from: date | None = None, date_to: date | None = None,
+              trend: Literal["day", "week", "month"] = "day"):
+    return svc.dashboard(ctx, date_from, date_to, trend)
 
 
 @router.get("/reports", summary="Report catalogue filtered by permission")
@@ -31,15 +43,17 @@ def catalogue(ctx: Annotated[Ctx, Depends(require("notifications.view"))]):
 
 
 @router.get("/reports/{report_id}")
-def run(report_id: str, ctx: Annotated[Ctx, Depends(require("notifications.view"))], date_from: date | None = None, date_to: date | None = None):
-    return svc.run(ctx, report_id, date_from, date_to)
+def run(report_id: str, ctx: Annotated[Ctx, Depends(require("notifications.view"))], filters: Annotated[ReportFilters, Depends()], date_from: date | None = None,
+        date_to: date | None = None):
+    return svc.run(ctx, report_id, date_from, date_to, filters.model_dump())
 
 
 @router.get("/reports/{report_id}/export", summary="CSV export (audited). PDF and Excel are not built yet.")
-def export(report_id: str, ctx: Annotated[Ctx, Depends(require("report.export"))], format: str = Query("csv"), date_from: date | None = None, date_to: date | None = None):
+def export(report_id: str, ctx: Annotated[Ctx, Depends(require("report.export"))], filters: Annotated[ReportFilters, Depends()], format: str = Query("csv"),
+           date_from: date | None = None, date_to: date | None = None):
     if format != "csv":
         raise BusinessRuleError("FORMAT_NOT_AVAILABLE", "Only CSV export is available in this release.", 501)
-    data = jsonable_encoder(svc.run(ctx, report_id, date_from, date_to))
+    data = jsonable_encoder(svc.run(ctx, report_id, date_from, date_to, filters.model_dump()))
     buf = io.StringIO()
     rows = data["rows"]
     if rows:

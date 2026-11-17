@@ -99,9 +99,12 @@ def next_number(db: Session, branch_id: uuid.UUID, series: str, period: str) -> 
 DEFAULT_SETTINGS: dict[str, dict] = {
     "billing": {"base_currency": "USD", "khr_rounding_increment": "100", "partial_payments": True, "default_price_list": "STANDARD"},
     "cash": {"variance_tolerance": {"USD": "1.00", "KHR": "4000"}},
-    "inventory": {"consumption_point": "Send", "allow_negative_from_sales": True},
+    "inventory": {"consumption_point": "Send", "allow_negative_from_sales": True, "expiry_warning_days": 3},
     "orders": {"require_table_for_dine_in": True, "pay_first_order_types": ["Takeaway"]},
-    "kitchen": {"printer_fallback_seconds": 15},
+    "kitchen": {"printer_fallback_seconds": 15, "late_ticket_minutes": 15},
+    "reservations": {"default_duration_minutes": 90, "buffer_minutes": 15, "hold_minutes": 60, "grace_minutes": 15, "max_party_size": 20, "walkin_warning_minutes": 60},
+    "purchasing": {"receipt_tolerance_pct": "5", "price_tolerance_pct": "5", "invoice_tolerance": "1.00", "separate_receiver": False},
+    "recipes": {"target_food_cost_pct": "35"},
 }
 
 

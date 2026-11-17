@@ -40,7 +40,7 @@ class Order(IdMixin, TimestampMixin, VersionMixin, Base):
     payment_status: Mapped[str] = mapped_column(String(20), default="Unpaid")
     table_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("restaurant_tables.id"))
     table_tag: Mapped[str | None] = mapped_column(String(10))
-    customer_id: Mapped[uuid.UUID | None]  # FK added with CUST (Phase 2)
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("customers.id"), index=True)
     customer_name: Mapped[str | None] = mapped_column(String(120))
     customer_phone: Mapped[str | None] = mapped_column(String(20))
     pickup_name: Mapped[str | None] = mapped_column(String(60))
@@ -138,6 +138,7 @@ class OrderDiscount(IdMixin, Base):
     reason: Mapped[str] = mapped_column(Text)
     requested_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    promotion_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("promotions.id"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     removed_at: Mapped[datetime | None]
 

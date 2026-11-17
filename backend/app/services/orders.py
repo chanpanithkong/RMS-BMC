@@ -85,7 +85,10 @@ def calculation(db: Session, order: Order):
 
 
 def recalc(ctx: Ctx, order: Order) -> None:
-    """Server-side totals (C-02, BR-008). Client-supplied totals are never used."""
+    """Server-side totals (C-02, BR-008). Client-supplied totals are never used. Automatic promotions are re-evaluated first (FR-PROMO-005)."""
+    from app.services import promotions
+
+    promotions.reconcile(ctx, order)
     result = calculation(ctx.db, order)
     by_key = {r.key: r for r in result.lines}
     for i in order.items:
@@ -321,10 +324,12 @@ def send(ctx: Ctx, order: Order) -> dict:
         table = db.get(RestaurantTable, order.table_id)
         if table.service_state != "Ordering" and "Ordering" in TABLE_TRANSITIONS.get(table.service_state, set()):
             set_table_state(ctx, table, "Ordering")
-    log_event(ctx, order, "sent", {"items": len(pending), "tickets": [t.ticket_no for t in tickets]})
+    from app.services.recipes import post_consumption
+
+    consumed = post_consumption(ctx, pending)  # BR-014 / A-15: ingredients consumed when sent
+    log_event(ctx, order, "sent", {"items": len(pending), "tickets": [t.ticket_no for t in tickets], "consumption_rows": consumed})
     audit(db, ctx, "order.send", "Order", order.id, after={"items": [str(i.id) for i in pending], "tickets": [str(t.id) for t in tickets]})
     emit(db, f"branch:{ctx.branch_id}", "order.updated", {"order_id": str(order.id), "kitchen_status": order.kitchen_status})
-    # Ingredient consumption at send (A-15/BR-014) is posted by the recipes module (Phase 2); items without recipes are listed as unmapped.
     return {"order_id": order.id, "tickets": [{"ticket_id": t.id, "ticket_no": t.ticket_no, "station_code": t.station_code, "items": len(by_station[t.station_code])} for t in tickets]}
 
 
@@ -345,6 +350,10 @@ def cancel_item(ctx: Ctx, order: Order, item: OrderItem, reason: str, approval_i
         void_type = "AfterPreparation"
         approver = consume_approval(ctx, approval_id, "void", item.line_net, item.id)
     item.item_status, item.void_type, item.void_reason, item.void_approved_by, item.cancelled_at = "Cancelled", void_type, reason, approver, utcnow()
+    if void_type == "BeforePreparation":
+        from app.services.recipes import reverse_consumption
+
+        reverse_consumption(ctx, item, f"Cancelled before preparation: {reason}")  # BR-014
     if status != "Pending":
         ticket = KitchenTicket(branch_id=ctx.branch_id, business_date=order.business_date, order_id=order.id, station_code=item.station_code or "NONE",
                                ticket_no=next_number(db, ctx.branch_id, "TICKET", order.business_date.isoformat()), ticket_type="Void")
@@ -376,6 +385,10 @@ def cancel_order(ctx: Ctx, order: Order, reason: str, approval_id: uuid.UUID | N
         was = i.item_status
         i.void_type = None if was == "Pending" else ("BeforePreparation" if was == "Sent" else "AfterPreparation")
         i.item_status, i.void_reason, i.cancelled_at, i.void_approved_by = "Cancelled", reason, utcnow(), approver if was not in ("Pending", "Sent") else None
+        if was == "Sent":
+            from app.services.recipes import reverse_consumption
+
+            reverse_consumption(ctx, i, f"Order cancelled: {reason}")
         if i.station_code and was in ACTIVE_KITCHEN + ("Ready",):
             emit(db, f"station:{ctx.branch_id}:{i.station_code}", "kitchen.item.cancelled", {"order_item_id": str(i.id), "order_no": order.order_no})
     for b in db.scalars(select(Bill).where(Bill.order_id == order.id, Bill.status == "Open")):

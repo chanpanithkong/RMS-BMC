@@ -61,7 +61,7 @@ Key decisions:
 | 6 | Auth (login, lockout, refresh rotation, logout, PIN login, password change/reset, me) + RBAC + branch scope | Auth and permission tests |
 | 7 | Phase 1 modules: CFG, MENU, TBL, ORD/POS, KDS, BILL, STAFF cashier sessions, basic INV, PROMO manual discounts, NOTIF in-app, AUD, DASH, RPT 01/02/03/04/07/11/12/13/14/17/18/24, DLV takeaway | Acceptance tests from §16 for these modules |
 | 8 | Frontend integration: OpenAPI → TypeScript types, typed client, integration guide; switch login first | Types generated, guide written |
-| 9 | Phase 2: CUST, RSV, RCP, advanced INV, PUR, EXP, STAFF schedules, promotions/codes, advanced RPT | Module tests |
+| 9 | Phase 2: CUST, RSV, RCP, advanced INV, PUR, EXP, STAFF schedules, promotions/codes, advanced RPT | Module tests (done; see `TRACEABILITY.md`) |
 | 10 | Phase 3: BRN, ONL, delivery platforms, payment gateway adapters, external notifications | Module tests |
 | 11–12 | Test completion, Docker Compose, README | Full suite green, compose up healthy |
 
@@ -80,6 +80,10 @@ These are **configurable** and seeded with the SRS's *illustrative* values only.
 | Partial payments allowed | default on | D-11 |
 | Cash variance tolerance 1.00 USD / 4,000 KHR | illustrative | BR-013 |
 | Lockout 5 failures / 15 min → 15 min | proposed | §14.2 |
+| Purchase-order approval bands (Branch Manager 500, GM 5,000) and expense limits (Supervisor 50, Branch Manager 300, GM 2,000) | placeholder, not from the SRS | BR-017, BR-020 |
+| Goods-receipt quantity and price tolerance 5 %, invoice tolerance 1.00 | placeholder | BR-042, FR-PUR-010 |
+| Reservation duration 90 min, buffer 15, hold 60, grace 15 | placeholder | FR-RSV-005/006 |
+| Target food cost 35 %, kitchen late threshold 15 min | placeholder | FR-RCP-008, FR-RPT-014 |
 
 ## 6. Frontend integration plan
 

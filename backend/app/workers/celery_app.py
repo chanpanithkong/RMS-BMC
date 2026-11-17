@@ -30,8 +30,23 @@ def handle(event: OutboxEvent, mailer: EmailSender) -> None:
         link = f"{get_settings().FRONTEND_URL}/reset-password?token={event.payload['token']}"
         if event.payload.get("email"):
             mailer.send(event.payload["email"], "Reset your RMS password", f"Use this link within 30 minutes:\n{link}\n\nIf you didn't ask for this, ignore this email.")
+    elif event.event_type == "email.purchase_order":
+        mailer.send(event.payload["email"], f"Purchase order {event.payload['po_no']}", purchase_order_text(event.payload))
     else:
-        log.info("no handler for %s", event.event_type)
+        # Not delivered: leave it unprocessed and visible rather than dropping it silently.
+        raise ValueError(f"No outbox handler for {event.event_type}")
+
+
+def purchase_order_text(p: dict) -> str:
+    """Plain-text PO email (FR-PUR-005). The printable/PDF document is not built yet."""
+    lines = [f"Purchase order {p['po_no']} from {p.get('branch') or 'our restaurant'}", f"Supplier: {p.get('supplier', '')}"]
+    if p.get("delivery_date"):
+        lines.append(f"Requested delivery: {p['delivery_date']}")
+    lines.append("")
+    for ln in p.get("lines", []):
+        lines.append(f"- {ln['item']}: {ln['quantity']} {ln['unit']} at {ln['unit_price']} {p.get('currency', 'USD')}")
+    lines += ["", f"Total: {p['total']} {p.get('currency', 'USD')}"]
+    return "\n".join(lines)
 
 
 @celery.task

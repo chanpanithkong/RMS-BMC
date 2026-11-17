@@ -120,6 +120,7 @@ class DiscountOut(ORM):
     reason: str
     requested_by: uuid.UUID
     approved_by: uuid.UUID | None
+    promotion_id: uuid.UUID | None = None
 
 
 class Totals(BaseModel):

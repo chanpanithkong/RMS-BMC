@@ -148,6 +148,7 @@ class SeatIn(Strict):
     guest_count: int = Field(ge=1, le=200)
     allow_over_capacity: bool = False
     open_order: bool = True
+    override_reservation: bool = Field(False, description="Seat a walk-in on a table reserved within the warning window (FR-RSV-011)")
 
 
 class StateIn(Strict):
@@ -241,6 +242,12 @@ def seat(table_id: uuid.UUID, body: SeatIn, ctx: TOperate):
         raise Conflict("INVALID_STATUS_TRANSITION", f"Table {t.table_code} is {t.service_state}.")
     if body.guest_count > t.capacity and not (body.allow_over_capacity and ctx.can("tables.manage")):
         raise BusinessRuleError("OVER_CAPACITY", f"{body.guest_count} guests exceed the capacity of {t.capacity}. A manager can override.")
+    from app.services.front import rsv_settings, upcoming_for_table
+
+    upcoming = upcoming_for_table(ctx, t.id, int(rsv_settings(ctx)["walkin_warning_minutes"]))
+    if upcoming and not body.override_reservation:
+        raise Conflict("TABLE_RESERVED_SOON", f"Table {t.table_code} is reserved for {upcoming.guest_name} at {upcoming.reserved_at.isoformat()}.",
+                       reservation_id=str(upcoming.id))
     osvc.set_table_state(ctx, t, "Seated")
     t.guest_count, t.server_user_id, t.seated_at = body.guest_count, ctx.user_id, utcnow()
     order = None

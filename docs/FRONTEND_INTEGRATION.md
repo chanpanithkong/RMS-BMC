@@ -99,6 +99,12 @@ Every error has the same shape:
 | `IDEMPOTENCY_MISMATCH` (409) | A key was reused for a different request; generate a new one |
 | `CASHIER_SESSION_REQUIRED`, `EXCHANGE_RATE_MISSING`, `BUSINESS_DAY_CLOSED` | Show the message; link to Shifts or Settings |
 | `PERMISSION_DENIED` (403) | Hide or disable the control |
+| `POSSIBLE_DUPLICATE` (409) | Show `existing` customers and offer to use one, or create anyway with `?force=true` |
+| `TABLE_TIME_CONFLICT` (409) | Offer `next_available` or one of `alternative_table_ids` |
+| `TABLE_RESERVED_SOON` (409) | Warn, then retry seating with `override_reservation: true` |
+| `SELF_APPROVAL`, `APPROVER_LIMIT_EXCEEDED` (403) | Someone else, or a role with a higher limit, must approve |
+| `PROMO_CODE_INVALID`, `PROMO_NOT_APPLICABLE`, `PROMO_LIMIT_REACHED`, `PROMO_ALREADY_APPLIED` | Show the message under the code field |
+| `UNIT_INCOMPATIBLE` (422) | The recipe line's unit doesn't match the ingredient's dimension |
 
 ## Approval flow (discounts, voids, refunds, adjustments)
 
@@ -135,4 +141,13 @@ Topics: `branch:<branchId>` (orders, payments, menu availability), `tables:<bran
 2. POS, orders, KDS and expo (highest value; uses WebSockets).
 3. Floor plan, payments, cashier sessions.
 4. Menu, inventory, settings, users, audit, dashboard and reports.
-5. Phase 2 screens (customers, reservations, recipes, purchasing, expenses, employees) once those backend modules exist.
+5. Phase 2 screens: customers, reservations, recipes, purchasing, expenses, employees, promotions and the advanced reports. The backend for all of them is ready.
+
+## Phase 2 notes
+
+* **Customers.** Contact details come back masked (`012 *** 678`) unless the user has `customers.contact.view`. `POST /customers` returns 409 `POSSIBLE_DUPLICATE` with `existing` matches. Attaching a customer to an order (`POST /customers/attach/{order_id}`) returns preferences and allergy notes to show on the POS.
+* **Reservations.** `GET /reservations/availability?at=…&party_size=…` lists free tables. Seating a reservation (`POST /reservations/{id}/seat`) opens the order in one call.
+* **Promotions.** Automatic promotions apply whenever the order changes; nothing to call. Show `GET /orders/{id}/promotions` on the bill: `applied` with the saving, and `not_applied` with a `reason` for each. Codes: `POST /orders/{id}/promo-codes { code }`, removed with `DELETE /orders/{id}/promo-codes/{redemption_id}`. Promotion discounts appear in the order's `discounts` with `promotion_id` set.
+* **Purchasing.** PO approval returns 403 `SELF_APPROVAL` for the creator and `APPROVER_LIMIT_EXCEEDED` above the approver's `po_amount` limit (both in `/auth/me` limits). Posting a goods receipt can return `status: "PendingApproval"` with an `exception_note` when it's over tolerance.
+* **Reports.** `GET /reports` lists only the reports the user can run. Each report returns `{summary, rows}`; some summaries carry extra breakdowns (RPT-15 `by_item` and `by_hour`, RPT-20 `by_item`, RPT-22 `daily` and `monthly`, RPT-23 `categories`). Filters: `date_from`, `date_to`, `user_id`, `customer_id`, `supplier_id`, `station_code`, `category`.
+* **Dashboard.** `GET /dashboard?trend=day|week|month` adds `trends.series`, `costs` (theoretical food cost and approved expenses) and the `indicative_operating_result` with its label, which must be shown as written.

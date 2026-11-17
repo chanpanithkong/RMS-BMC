@@ -140,6 +140,10 @@ def waste_outcome(ctx: Ctx, item_id: uuid.UUID, outcome: str) -> OrderItem:
     if item.waste_outcome:
         raise Conflict("OUTCOME_RECORDED", "An outcome was already recorded for this item.")
     item.waste_outcome = outcome
+    if outcome == "Reusable":
+        from app.services.recipes import reverse_consumption
+
+        reverse_consumption(ctx, item, "Prepared item reused")  # wastage keeps the consumption as waste
     audit(ctx.db, ctx, "kitchen.waste_outcome", "OrderItem", item.id, after={"outcome": outcome})
     return item
 

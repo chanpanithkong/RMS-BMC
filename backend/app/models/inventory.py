@@ -34,6 +34,7 @@ class Ingredient(IdMixin, TimestampMixin, Base):
     reorder_qty: Mapped[Decimal] = mapped_column(Qty, default=Decimal("0"))
     track_batch: Mapped[bool] = mapped_column(Boolean, default=False)
     track_expiry: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_location_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("inventory_locations.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     stock_uom: Mapped[UnitOfMeasure] = relationship(lazy="joined")
 

@@ -48,7 +48,7 @@ def post_txn(ctx: Ctx, *, location_id, ingredient: Ingredient, txn_type: str, qu
     if new_qty < 0 and not allow_negative:
         raise BusinessRuleError("INSUFFICIENT_STOCK", f"Only {bal.quantity} {ingredient.stock_uom.code} of {ingredient.name_en} on hand.")  # BR-040
     cost = unit_cost if unit_cost is not None else bal.avg_cost
-    if quantity > 0 and txn_type in ("RECEIPT", "OPENING") and new_qty > 0:
+    if quantity > 0 and txn_type in ("RECEIPT", "OPENING", "TRANSFER_IN") and new_qty > 0:
         bal.avg_cost = ((max(bal.quantity, ZERO) * bal.avg_cost + quantity * cost) / (max(bal.quantity, ZERO) + quantity)).quantize(Decimal("0.000001"))  # WAC (A-16)
     bal.quantity = new_qty
     txn = InventoryTransaction(branch_id=ctx.branch_id, business_date=ctx.business_date(), location_id=location_id, ingredient_id=ingredient.id, txn_type=txn_type,
@@ -148,6 +148,10 @@ def _post(ctx: Ctx, doc: StockDocument) -> None:
         qty = to_stock_qty(ctx, ing, abs(ln.quantity), ln.uom_id) * (sign if doc.doc_type != "Adjustment" else (1 if ln.quantity > 0 else -1))
         post_txn(ctx, location_id=doc.location_id, ingredient=ing, txn_type=txn_type, quantity=qty, unit_cost=ln.unit_cost, source_type=f"StockDocument:{doc.doc_type}",
                  source_id=doc.id, source_line_id=ln.id, reason=doc.reason)
+        if doc.doc_type in ("Receipt", "Opening"):
+            from app.services.recipes import record_batch
+
+            record_batch(ctx, doc.location_id, ing.id, ln.batch_no, ln.expiry_date, qty, "StockDocument", ln.id)
     doc.status, doc.posted_by, doc.posted_at = "Posted", ctx.user_id, utcnow()
     audit(ctx.db, ctx, "inventory.document_post", "StockDocument", doc.id, after={"type": doc.doc_type, "value": doc.total_value, "approved_by": doc.approved_by}, reason=doc.reason)
 

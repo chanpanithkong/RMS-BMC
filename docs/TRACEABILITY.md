@@ -5,14 +5,14 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 * **Done, tested**: implemented and covered by an automated test in `backend/tests`.
 * **Done**: implemented, no dedicated test yet.
 * **Partial**: some of the requirement is implemented (see README, 'Known gaps').
-* **Not started**: no backend code yet (mostly Phase 2 and 3).
+* **Not started**: no backend code yet (mostly Phase 3 and Could-have items).
 
 | Status | Count |
 |---|---|
-| Done | 73 |
-| Done, tested | 82 |
-| Not started | 149 |
-| Partial | 28 |
+| Done | 88 |
+| Done, tested | 138 |
+| Not started | 74 |
+| Partial | 32 |
 | **Total** | **332** |
 
 | ID | Module | Priority | Requirement | Status | Acceptance test |
@@ -26,10 +26,10 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-DASH-007 | DASH | Should | The system shall display live table occupancy (occupied tables ÷ active tables) when table management is enabl… | Done | AT-DASH-104 |
 | FR-DASH-008 | DASH | Must | The system shall display pending kitchen tickets by station with the age of the oldest ticket, refreshed autom… | Done | AT-DASH-03 |
 | FR-DASH-009 | DASH | Should | The system shall display the number of low-stock ingredients and the current inventory valuation for the branc… | Done | AT-DASH-105 |
-| FR-DASH-010 | DASH | Should | The system shall display theoretical food cost percentage and approved expenses for the period. | Not started | AT-DASH-106 |
-| FR-DASH-011 | DASH | Could | The system shall display an indicative operating result labelled “indicative — not accounting profit”, visible… | Partial | AT-DASH-02 |
+| FR-DASH-010 | DASH | Should | The system shall display theoretical food cost percentage and approved expenses for the period. | Done, tested | AT-DASH-106 |
+| FR-DASH-011 | DASH | Could | The system shall display an indicative operating result labelled “indicative — not accounting profit”, visible… | Done, tested | AT-DASH-02 |
 | FR-DASH-012 | DASH | Must | The system shall display cashier session summaries (open sessions with expected cash; closed sessions with var… | Done | AT-DASH-107 |
-| FR-DASH-013 | DASH | Should | The system shall display daily, weekly and monthly trend charts of net sales and order counts for the selected… | Not started | AT-DASH-108 |
+| FR-DASH-013 | DASH | Should | The system shall display daily, weekly and monthly trend charts of net sales and order counts for the selected… | Done, tested | AT-DASH-108 |
 | FR-DASH-014 | DASH | Must | The system shall provide date-range and branch filters applied consistently to all period-based widgets and sh… | Done | AT-DASH-109 |
 | FR-DASH-015 | DASH | Should | The system shall allow the user to open the underlying filtered list or report from each indicator. | Not started | AT-DASH-110 |
 | FR-MENU-001 | MENU | Must | The system shall allow authorised users to create, edit, order and deactivate menu categories with Khmer and E… | Done | AT-MENU-101 |
@@ -111,28 +111,28 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-KDS-013 | KDS | Should | The system shall keep kitchen ticket history searchable by date, station, order number and status. | Not started | AT-KDS-106 |
 | FR-KDS-014 | KDS | Should | The system shall allow kitchen users to mark an item that was prepared but cancelled as wastage or reusable. | Done, tested | AT-KDS-02 |
 | FR-KDS-015 | KDS | Could | The system shall show an all-day count of items currently in the queue per station (e.g., 7 × Fried Rice). | Not started | AT-KDS-107 |
-| FR-CUST-001 | CUST | Must | The system shall allow registering customers with name, phone, optional email, optional addresses, preferred l… | Not started | AT-CUST-101 |
-| FR-CUST-002 | CUST | Must | The system shall allow orders without a customer record unless the order type requires contact data. | Not started | AT-CUST-102 |
-| FR-CUST-003 | CUST | Must | The system shall search customers by phone, name or customer code within 1 second for up to 50,000 customers. | Not started | AT-CUST-103 |
-| FR-CUST-004 | CUST | Should | The system shall detect potential duplicates by normalised phone or email and allow authorised users to merge … | Not started | AT-CUST-01 |
-| FR-CUST-005 | CUST | Should | The system shall show a customer’s order history, total visits, total spend and last visit to permitted roles. | Not started | AT-CUST-104 |
-| FR-CUST-006 | CUST | Should | The system shall record customer preferences (e.g., spice level, seating) and allergy notes and display them o… | Not started | AT-CUST-105 |
-| FR-CUST-007 | CUST | Could | The system shall allow classifying customers (e.g., regular, VIP, corporate) for promotions and reporting. | Not started | AT-CUST-106 |
+| FR-CUST-001 | CUST | Must | The system shall allow registering customers with name, phone, optional email, optional addresses, preferred l… | Done, tested | AT-CUST-101 |
+| FR-CUST-002 | CUST | Must | The system shall allow orders without a customer record unless the order type requires contact data. | Done | AT-CUST-102 |
+| FR-CUST-003 | CUST | Must | The system shall search customers by phone, name or customer code within 1 second for up to 50,000 customers. | Partial | AT-CUST-103 |
+| FR-CUST-004 | CUST | Should | The system shall detect potential duplicates by normalised phone or email and allow authorised users to merge … | Done, tested | AT-CUST-01 |
+| FR-CUST-005 | CUST | Should | The system shall show a customer’s order history, total visits, total spend and last visit to permitted roles. | Done, tested | AT-CUST-104 |
+| FR-CUST-006 | CUST | Should | The system shall record customer preferences (e.g., spice level, seating) and allergy notes and display them o… | Done | AT-CUST-105 |
+| FR-CUST-007 | CUST | Could | The system shall allow classifying customers (e.g., regular, VIP, corporate) for promotions and reporting. | Done | AT-CUST-106 |
 | FR-CUST-008 | CUST | Could | The system shall maintain loyalty point balances and transactions when the loyalty feature is enabled. | Not started | AT-CUST-107 |
-| FR-CUST-009 | CUST | Must | The system shall mask phone and email for roles without customer.contact.view permission. | Not started | AT-CUST-02 |
-| FR-CUST-010 | CUST | Should | The system shall anonymise a customer on approved request, retaining financial records linked to an anonymised… | Not started | AT-CUST-03 |
+| FR-CUST-009 | CUST | Must | The system shall mask phone and email for roles without customer.contact.view permission. | Done, tested | AT-CUST-02 |
+| FR-CUST-010 | CUST | Should | The system shall anonymise a customer on approved request, retaining financial records linked to an anonymised… | Done, tested | AT-CUST-03 |
 | FR-CUST-011 | CUST | Could | The system shall maintain credit accounts for approved customers or companies with credit limit and balance wh… | Not started | AT-CUST-108 |
-| FR-RSV-001 | RSV | Must | The system shall allow creating reservations with date, time, party size, customer name and phone, special req… | Not started | AT-RSV-101 |
-| FR-RSV-002 | RSV | Must | The system shall show available tables and table combinations for the requested time and party size based on d… | Not started | AT-RSV-01 |
-| FR-RSV-003 | RSV | Must | The system shall prevent assigning a table to overlapping reservation windows using a database constraint. | Not started | AT-RSV-01 |
-| FR-RSV-004 | RSV | Must | The system shall allow modifying and cancelling reservations with reason and record the history of changes. | Not started | AT-RSV-102 |
-| FR-RSV-005 | RSV | Should | The system shall set the assigned table to Reserved at the configured hold window before the reservation time … | Not started | AT-RSV-103 |
-| FR-RSV-006 | RSV | Should | The system shall mark reservations as No-show after the configured grace period when not seated, and track no-… | Not started | AT-RSV-02 |
-| FR-RSV-007 | RSV | Must | The system shall seat a reservation in one action, linking the reservation to the table and the new order. | Not started | AT-RSV-104 |
-| FR-RSV-008 | RSV | Should | The system shall maintain a waiting list with party name, size, phone, time added and quoted wait time, and es… | Not started | AT-RSV-03 |
-| FR-RSV-009 | RSV | Could | The system shall notify waiting-list parties and reservation customers by the configured channels when enabled… | Not started | AT-RSV-03 |
-| FR-RSV-010 | RSV | Should | The system shall provide a reservation calendar and list view with search by date, name, phone and status. | Not started | AT-RSV-105 |
-| FR-RSV-011 | RSV | Should | The system shall warn staff when a walk-in is seated at a table reserved within the next configurable interval… | Not started | AT-RSV-106 |
+| FR-RSV-001 | RSV | Must | The system shall allow creating reservations with date, time, party size, customer name and phone, special req… | Done, tested | AT-RSV-101 |
+| FR-RSV-002 | RSV | Must | The system shall show available tables and table combinations for the requested time and party size based on d… | Done, tested | AT-RSV-01 |
+| FR-RSV-003 | RSV | Must | The system shall prevent assigning a table to overlapping reservation windows using a database constraint. | Done, tested | AT-RSV-01 |
+| FR-RSV-004 | RSV | Must | The system shall allow modifying and cancelling reservations with reason and record the history of changes. | Done | AT-RSV-102 |
+| FR-RSV-005 | RSV | Should | The system shall set the assigned table to Reserved at the configured hold window before the reservation time … | Done | AT-RSV-103 |
+| FR-RSV-006 | RSV | Should | The system shall mark reservations as No-show after the configured grace period when not seated, and track no-… | Done, tested | AT-RSV-02 |
+| FR-RSV-007 | RSV | Must | The system shall seat a reservation in one action, linking the reservation to the table and the new order. | Done, tested | AT-RSV-104 |
+| FR-RSV-008 | RSV | Should | The system shall maintain a waiting list with party name, size, phone, time added and quoted wait time, and es… | Done, tested | AT-RSV-03 |
+| FR-RSV-009 | RSV | Could | The system shall notify waiting-list parties and reservation customers by the configured channels when enabled… | Partial | AT-RSV-03 |
+| FR-RSV-010 | RSV | Should | The system shall provide a reservation calendar and list view with search by date, name, phone and status. | Done | AT-RSV-105 |
+| FR-RSV-011 | RSV | Should | The system shall warn staff when a walk-in is seated at a table reserved within the next configurable interval… | Done, tested | AT-RSV-106 |
 | FR-BILL-001 | BILL | Must | The system shall generate one or more bills for an order, each listing items, modifiers, quantities, unit pric… | Done, tested | AT-BILL-101 |
 | FR-BILL-002 | BILL | Must | The system shall perform all bill calculations in the backend calculation engine using the order-time snapshot… | Done, tested | AT-BILL-01 |
 | FR-BILL-003 | BILL | Must | The system shall apply the calculation order of BR-008, including pro rata allocation of order-level discounts… | Done, tested | AT-BILL-01 |
@@ -159,55 +159,55 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-INV-004 | INV | Must | The system shall provide no function to edit on-hand quantities directly. | Done, tested | AT-INV-02 |
 | FR-INV-005 | INV | Must | The system shall record opening stock per location once, with cost. | Done | AT-INV-103 |
 | FR-INV-006 | INV | Must | The system shall post stock receipts from goods receipts and record manual issues with reason. | Done, tested | AT-INV-01 |
-| FR-INV-007 | INV | Should | The system shall record stock transfers between locations and, when multi-branch is enabled, between branches … | Not started | AT-INV-104 |
+| FR-INV-007 | INV | Should | The system shall record stock transfers between locations and, when multi-branch is enabled, between branches … | Partial | AT-INV-104 |
 | FR-INV-008 | INV | Must | The system shall record manual adjustments with reason code and route adjustments above the value threshold fo… | Done, tested | AT-INV-02 |
-| FR-INV-009 | INV | Must | The system shall record wastage of ingredients or prepared menu items with reason; menu-item wastage is conver… | Partial | AT-INV-105 |
-| FR-INV-010 | INV | Should | The system shall support stock counts (full or partial, by location or category) with blind entry, variance ca… | Not started | AT-INV-03 |
-| FR-INV-011 | INV | Should | The system shall track batches and expiry dates for configured items, issue stock first-expiry-first-out by de… | Not started | AT-INV-106 |
+| FR-INV-009 | INV | Must | The system shall record wastage of ingredients or prepared menu items with reason; menu-item wastage is conver… | Done, tested | AT-INV-105 |
+| FR-INV-010 | INV | Should | The system shall support stock counts (full or partial, by location or category) with blind entry, variance ca… | Done, tested | AT-INV-03 |
+| FR-INV-011 | INV | Should | The system shall track batches and expiry dates for configured items, issue stock first-expiry-first-out by de… | Partial | AT-INV-106 |
 | FR-INV-012 | INV | Must | The system shall show stock on hand by ingredient and location, with value at weighted average cost, and calcu… | Done | AT-INV-107 |
 | FR-INV-013 | INV | Must | The system shall raise low-stock alerts when on-hand reaches or falls below the reorder level. | Done | AT-INV-108 |
 | FR-INV-014 | INV | Must | The system shall show complete stock movement history per ingredient with running balance. | Done, tested | AT-INV-109 |
 | FR-INV-015 | INV | Must | The system shall reverse an erroneous transaction by posting a referencing reversal, with reason and permissio… | Done, tested | AT-INV-04 |
 | FR-INV-016 | INV | Must | The system shall prevent manual issues and transfers that would make stock negative, and handle sales consumpt… | Done, tested | AT-INV-110 |
-| FR-RCP-001 | RCP | Must | The system shall allow creating recipes for menu item variants and modifiers with yield, portion size and ingr… | Not started | AT-RCP-101 |
+| FR-RCP-001 | RCP | Must | The system shall allow creating recipes for menu item variants and modifiers with yield, portion size and ingr… | Done, tested | AT-RCP-101 |
 | FR-RCP-002 | RCP | Should | The system shall support sub-recipes (prepared items) that can be used as ingredients in other recipes and pro… | Not started | AT-RCP-102 |
-| FR-RCP-003 | RCP | Must | The system shall maintain recipe versions with status Draft, Active or Retired and effective-from time; publis… | Not started | AT-RCP-04 |
-| FR-RCP-004 | RCP | Must | The system shall support units of mass (g, kg), volume (ml, L) and count (piece) with fixed intra-dimension fa… | Not started | AT-RCP-02 |
-| FR-RCP-005 | RCP | Must | The system shall calculate ingredient gross quantity from net quantity and loss percentages and convert it to … | Not started | AT-RCP-01 |
-| FR-RCP-006 | RCP | Must | The system shall post SALE_CONSUMPTION inventory transactions from the active recipe version, including modifi… | Not started | AT-RCP-01 |
-| FR-RCP-007 | RCP | Must | The system shall calculate recipe cost per portion from current weighted average ingredient costs and show it … | Not started | AT-RCP-03 |
-| FR-RCP-008 | RCP | Must | The system shall calculate food cost percentage and gross margin per menu item (selling price excluding tax − … | Not started | AT-RCP-03 |
-| FR-RCP-009 | RCP | Must | The system shall record recipe modification history (who, when, what changed, previous version). | Not started | AT-RCP-04 |
-| FR-RCP-010 | RCP | Must | The system shall list menu items sold without an active recipe (“unmapped items”). | Not started | AT-RCP-103 |
-| FR-RCP-011 | RCP | Should | The system shall produce theoretical consumption, actual usage and variance by ingredient for a period based o… | Not started | AT-RCP-104 |
+| FR-RCP-003 | RCP | Must | The system shall maintain recipe versions with status Draft, Active or Retired and effective-from time; publis… | Done, tested | AT-RCP-04 |
+| FR-RCP-004 | RCP | Must | The system shall support units of mass (g, kg), volume (ml, L) and count (piece) with fixed intra-dimension fa… | Done, tested | AT-RCP-02 |
+| FR-RCP-005 | RCP | Must | The system shall calculate ingredient gross quantity from net quantity and loss percentages and convert it to … | Done, tested | AT-RCP-01 |
+| FR-RCP-006 | RCP | Must | The system shall post SALE_CONSUMPTION inventory transactions from the active recipe version, including modifi… | Done, tested | AT-RCP-01 |
+| FR-RCP-007 | RCP | Must | The system shall calculate recipe cost per portion from current weighted average ingredient costs and show it … | Done, tested | AT-RCP-03 |
+| FR-RCP-008 | RCP | Must | The system shall calculate food cost percentage and gross margin per menu item (selling price excluding tax − … | Done, tested | AT-RCP-03 |
+| FR-RCP-009 | RCP | Must | The system shall record recipe modification history (who, when, what changed, previous version). | Done | AT-RCP-04 |
+| FR-RCP-010 | RCP | Must | The system shall list menu items sold without an active recipe (“unmapped items”). | Done, tested | AT-RCP-103 |
+| FR-RCP-011 | RCP | Should | The system shall produce theoretical consumption, actual usage and variance by ingredient for a period based o… | Done, tested | AT-RCP-104 |
 | FR-RCP-012 | RCP | Could | The system shall allow recording production of sub-recipe batches, consuming ingredients and increasing the pr… | Not started | AT-RCP-105 |
-| FR-RCP-013 | RCP | Could | The system shall display preparation method text and photos for recipes to kitchen users. | Not started | AT-RCP-106 |
-| FR-PUR-001 | PUR | Must | The system shall maintain suppliers with name, contact person, phone, email, address, tax identification (if p… | Not started | AT-PUR-101 |
-| FR-PUR-002 | PUR | Should | The system shall allow users to create purchase requests manually or from low-stock alerts with suggested quan… | Not started | AT-PUR-102 |
-| FR-PUR-003 | PUR | Must | The system shall create purchase orders from requests or directly, with supplier, delivery date, lines, unit p… | Not started | AT-PUR-103 |
-| FR-PUR-004 | PUR | Must | The system shall route purchase orders for approval according to configurable value bands and prevent the crea… | Not started | AT-PUR-01 |
-| FR-PUR-005 | PUR | Should | The system shall produce a purchase order document (print and PDF, Khmer and English) and optionally email it … | Not started | AT-PUR-104 |
-| FR-PUR-006 | PUR | Must | The system shall record goods receipts against a PO or as direct receipts, capturing received quantity, unit, … | Not started | AT-PUR-105 |
-| FR-PUR-007 | PUR | Must | The system shall validate receipts against PO quantities and price tolerance and require approval beyond toler… | Not started | AT-PUR-03 |
-| FR-PUR-008 | PUR | Must | The system shall post a goods receipt to inventory exactly once, updating stock and weighted average cost in o… | Not started | AT-PUR-02 |
-| FR-PUR-009 | PUR | Should | The system shall record purchase returns referencing the goods receipt and reduce stock accordingly. | Not started | AT-PUR-106 |
-| FR-PUR-010 | PUR | Should | The system shall record supplier invoices, match them to receipts and flag differences. | Not started | AT-PUR-107 |
-| FR-PUR-011 | PUR | Should | The system shall record supplier payments against invoices and show supplier balances and ageing. | Not started | AT-PUR-108 |
-| FR-PUR-012 | PUR | Should | The system shall show supplier history (POs, receipts, invoices, returns, price history per item). | Not started | AT-PUR-109 |
-| FR-PUR-013 | PUR | Must | The system shall maintain PO status Draft, Submitted, Approved, Sent, Partially Received, Received, Closed and… | Not started | AT-PUR-110 |
-| FR-EXP-001 | EXP | Must | The system shall maintain expense categories with Khmer and English names, attachment requirement and active s… | Not started | AT-EXP-101 |
-| FR-EXP-002 | EXP | Must | The system shall allow recording expenses with branch, category, date, description, amount, currency, payee an… | Not started | AT-EXP-03 |
-| FR-EXP-003 | EXP | Must | The system shall route expenses above the submitter’s limit for approval by a different user and record approv… | Not started | AT-EXP-01 |
-| FR-EXP-004 | EXP | Must | The system shall record payment method, payment date and reference for approved expenses. | Not started | AT-EXP-102 |
-| FR-EXP-005 | EXP | Must | The system shall record cash paid-outs from an open cashier session as cash movements linked to the expense. | Not started | AT-EXP-02 |
-| FR-EXP-006 | EXP | Must | The system shall reverse paid expenses only with approval, retaining the original record. | Not started | AT-EXP-103 |
-| FR-EXP-007 | EXP | Must | The system shall provide daily and monthly expense summaries by category, branch and payment method. | Not started | AT-EXP-104 |
+| FR-RCP-013 | RCP | Could | The system shall display preparation method text and photos for recipes to kitchen users. | Partial | AT-RCP-106 |
+| FR-PUR-001 | PUR | Must | The system shall maintain suppliers with name, contact person, phone, email, address, tax identification (if p… | Done, tested | AT-PUR-101 |
+| FR-PUR-002 | PUR | Should | The system shall allow users to create purchase requests manually or from low-stock alerts with suggested quan… | Done, tested | AT-PUR-102 |
+| FR-PUR-003 | PUR | Must | The system shall create purchase orders from requests or directly, with supplier, delivery date, lines, unit p… | Done, tested | AT-PUR-103 |
+| FR-PUR-004 | PUR | Must | The system shall route purchase orders for approval according to configurable value bands and prevent the crea… | Done, tested | AT-PUR-01 |
+| FR-PUR-005 | PUR | Should | The system shall produce a purchase order document (print and PDF, Khmer and English) and optionally email it … | Partial | AT-PUR-104 |
+| FR-PUR-006 | PUR | Must | The system shall record goods receipts against a PO or as direct receipts, capturing received quantity, unit, … | Done, tested | AT-PUR-105 |
+| FR-PUR-007 | PUR | Must | The system shall validate receipts against PO quantities and price tolerance and require approval beyond toler… | Done, tested | AT-PUR-03 |
+| FR-PUR-008 | PUR | Must | The system shall post a goods receipt to inventory exactly once, updating stock and weighted average cost in o… | Done, tested | AT-PUR-02 |
+| FR-PUR-009 | PUR | Should | The system shall record purchase returns referencing the goods receipt and reduce stock accordingly. | Done, tested | AT-PUR-106 |
+| FR-PUR-010 | PUR | Should | The system shall record supplier invoices, match them to receipts and flag differences. | Done, tested | AT-PUR-107 |
+| FR-PUR-011 | PUR | Should | The system shall record supplier payments against invoices and show supplier balances and ageing. | Done, tested | AT-PUR-108 |
+| FR-PUR-012 | PUR | Should | The system shall show supplier history (POs, receipts, invoices, returns, price history per item). | Done, tested | AT-PUR-109 |
+| FR-PUR-013 | PUR | Must | The system shall maintain PO status Draft, Submitted, Approved, Sent, Partially Received, Received, Closed and… | Done | AT-PUR-110 |
+| FR-EXP-001 | EXP | Must | The system shall maintain expense categories with Khmer and English names, attachment requirement and active s… | Done | AT-EXP-101 |
+| FR-EXP-002 | EXP | Must | The system shall allow recording expenses with branch, category, date, description, amount, currency, payee an… | Done, tested | AT-EXP-03 |
+| FR-EXP-003 | EXP | Must | The system shall route expenses above the submitter’s limit for approval by a different user and record approv… | Done, tested | AT-EXP-01 |
+| FR-EXP-004 | EXP | Must | The system shall record payment method, payment date and reference for approved expenses. | Done | AT-EXP-102 |
+| FR-EXP-005 | EXP | Must | The system shall record cash paid-outs from an open cashier session as cash movements linked to the expense. | Done, tested | AT-EXP-02 |
+| FR-EXP-006 | EXP | Must | The system shall reverse paid expenses only with approval, retaining the original record. | Done | AT-EXP-103 |
+| FR-EXP-007 | EXP | Must | The system shall provide daily and monthly expense summaries by category, branch and payment method. | Done, tested | AT-EXP-104 |
 | FR-EXP-008 | EXP | Could | The system shall support recurring expense templates that generate draft expenses on a schedule. | Not started | AT-EXP-105 |
-| FR-EXP-009 | EXP | Must | The system shall store attachments securely with access only for permitted roles. | Not started | AT-EXP-106 |
-| FR-STAFF-001 | STAFF | Should | The system shall maintain employee profiles (name, Khmer name, employee code, department, position, branch, em… | Not started | AT-STAFF-101 |
-| FR-STAFF-002 | STAFF | Should | The system shall maintain departments and positions. | Not started | AT-STAFF-102 |
-| FR-STAFF-003 | STAFF | Should | The system shall allow scheduling shifts per employee and branch and show a weekly schedule view. | Not started | AT-STAFF-103 |
-| FR-STAFF-004 | STAFF | Could | The system shall record shift attendance (clock in and out) when enabled. | Not started | AT-STAFF-104 |
+| FR-EXP-009 | EXP | Must | The system shall store attachments securely with access only for permitted roles. | Done, tested | AT-EXP-106 |
+| FR-STAFF-001 | STAFF | Should | The system shall maintain employee profiles (name, Khmer name, employee code, department, position, branch, em… | Done, tested | AT-STAFF-101 |
+| FR-STAFF-002 | STAFF | Should | The system shall maintain departments and positions. | Done | AT-STAFF-102 |
+| FR-STAFF-003 | STAFF | Should | The system shall allow scheduling shifts per employee and branch and show a weekly schedule view. | Done, tested | AT-STAFF-103 |
+| FR-STAFF-004 | STAFF | Could | The system shall record shift attendance (clock in and out) when enabled. | Done | AT-STAFF-104 |
 | FR-STAFF-005 | STAFF | Must | The system shall require an open cashier session for cash payments, refunds, paid-outs and paid-ins, allowing … | Done, tested | AT-STAFF-03 |
 | FR-STAFF-006 | STAFF | Must | The system shall record the opening float per currency, optionally by denomination, with the opening time, use… | Done | AT-STAFF-105 |
 | FR-STAFF-007 | STAFF | Must | The system shall link each cash payment, change given, cash refund and cash movement to the active cashier ses… | Done, tested | AT-STAFF-106 |
@@ -217,7 +217,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-STAFF-011 | STAFF | Must | The system shall require manager approval with reason for variances beyond the configured tolerance before the… | Done, tested | AT-STAFF-02 |
 | FR-STAFF-012 | STAFF | Must | The system shall produce a session (X and Z) report showing sales, payments by method and currency, refunds, d… | Done | AT-STAFF-108 |
 | FR-STAFF-013 | STAFF | Should | The system shall allow managers to force-close abandoned sessions, flagging them for later count. | Done | AT-STAFF-109 |
-| FR-STAFF-014 | STAFF | Should | The system shall record staff activity history (sessions, sales, voids, discounts, refunds) per employee for a… | Not started | AT-STAFF-110 |
+| FR-STAFF-014 | STAFF | Should | The system shall record staff activity history (sessions, sales, voids, discounts, refunds) per employee for a… | Done | AT-STAFF-110 |
 | FR-DLV-001 | DLV | Must | The system shall create takeaway orders with pickup name or number and optional scheduled pickup time. | Done | AT-DLV-101 |
 | FR-DLV-002 | DLV | Could | The system shall create delivery orders with customer phone, address, landmark notes, map location (optional) … | Partial | AT-DLV-102 |
 | FR-DLV-003 | DLV | Could | The system shall calculate delivery fees from zone and order-value rules, add them as a separate charge with i… | Not started | AT-DLV-01 |
@@ -232,11 +232,11 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-PROMO-001 | PROMO | Must | The system shall support manual percentage and fixed-amount discounts at item level and order level with reaso… | Done, tested | AT-PROMO-101 |
 | FR-PROMO-002 | PROMO | Must | The system shall enforce per-role discount limits (maximum percentage, maximum amount per bill, maximum total … | Done, tested | AT-PROMO-102 |
 | FR-PROMO-003 | PROMO | Must | The system shall apply discounts before service charge and tax per BR-008 and allocate order-level discounts t… | Done, tested | AT-PROMO-103 |
-| FR-PROMO-004 | PROMO | Should | The system shall define promotions with type (percentage, amount, fixed price, buy-X-get-Y, combo price), scop… | Not started | AT-PROMO-104 |
-| FR-PROMO-005 | PROMO | Should | The system shall evaluate automatic promotions when items are added and show applied and non-applied promotion… | Not started | AT-PROMO-01 |
-| FR-PROMO-006 | PROMO | Should | The system shall support promotion codes (single-use or multi-use with limits per code and per customer) with … | Not started | AT-PROMO-03 |
-| FR-PROMO-007 | PROMO | Could | The system shall support customer-specific promotions by customer classification. | Not started | AT-PROMO-105 |
-| FR-PROMO-008 | PROMO | Must | The system shall enforce combination rules (combinable flag, priority, maximum one order-level discount by def… | Partial | AT-PROMO-01 |
+| FR-PROMO-004 | PROMO | Should | The system shall define promotions with type (percentage, amount, fixed price, buy-X-get-Y, combo price), scop… | Partial | AT-PROMO-104 |
+| FR-PROMO-005 | PROMO | Should | The system shall evaluate automatic promotions when items are added and show applied and non-applied promotion… | Done, tested | AT-PROMO-01 |
+| FR-PROMO-006 | PROMO | Should | The system shall support promotion codes (single-use or multi-use with limits per code and per customer) with … | Done, tested | AT-PROMO-03 |
+| FR-PROMO-007 | PROMO | Could | The system shall support customer-specific promotions by customer classification. | Done | AT-PROMO-105 |
+| FR-PROMO-008 | PROMO | Must | The system shall enforce combination rules (combinable flag, priority, maximum one order-level discount by def… | Done, tested | AT-PROMO-01 |
 | FR-PROMO-009 | PROMO | Must | The system shall record every discount and promotion application with order, bill, value, user, approver, reas… | Done, tested | AT-PROMO-106 |
 | FR-PROMO-010 | PROMO | Must | The system shall prevent the same promotion or manual discount from being applied twice to the same line or bi… | Done, tested | AT-PROMO-02 |
 | FR-PROMO-011 | PROMO | Could | The system shall support loyalty earning and redemption rules when loyalty is enabled (D-14). | Not started | AT-PROMO-107 |
@@ -247,20 +247,20 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-RPT-004 | RPT | Should | The system shall produce sales by employee (server and cashier) report (RPT-05). | Done, tested | AT-RPT-102 |
 | FR-RPT-005 | RPT | Could | The system shall produce sales by branch and branch comparison reports (RPT-06) when multi-branch is enabled. | Not started | AT-RPT-103 |
 | FR-RPT-006 | RPT | Must | The system shall produce a sales by payment method report (RPT-07) by currency with base equivalents, distingu… | Done, tested | AT-RPT-104 |
-| FR-RPT-007 | RPT | Should | The system shall produce order volume, average order value and peak-hour analysis reports (RPT-08, RPT-09) by … | Not started | AT-RPT-105 |
-| FR-RPT-008 | RPT | Could | The system shall produce a table turnover report (RPT-10) with covers, average dining time and turns per table… | Not started | AT-RPT-106 |
+| FR-RPT-007 | RPT | Should | The system shall produce order volume, average order value and peak-hour analysis reports (RPT-08, RPT-09) by … | Done, tested | AT-RPT-105 |
+| FR-RPT-008 | RPT | Could | The system shall produce a table turnover report (RPT-10) with covers, average dining time and turns per table… | Done, tested | AT-RPT-106 |
 | FR-RPT-009 | RPT | Must | The system shall produce a cancelled and voided items report (RPT-11) with reason, status at cancellation, use… | Done | AT-RPT-107 |
 | FR-RPT-010 | RPT | Must | The system shall produce a refund report (RPT-12) with original payment, amount, method, reason, requester and… | Done | AT-RPT-108 |
 | FR-RPT-011 | RPT | Must | The system shall produce a discount and promotion report (RPT-13) by type, reason, user, approver and value. | Done | AT-RPT-109 |
 | FR-RPT-012 | RPT | Must | The system shall produce a tax and service-charge summary report (RPT-14) by tax profile, rate and order type,… | Done, tested | AT-RPT-110 |
-| FR-RPT-013 | RPT | Could | The system shall produce a customer purchase history report (RPT-25) for permitted roles. | Not started | AT-RPT-111 |
-| FR-RPT-014 | RPT | Should | The system shall produce a kitchen preparation-time report (RPT-15) by station, item and hour with average, 90… | Not started | AT-RPT-112 |
-| FR-RPT-015 | RPT | Should | The system shall produce ingredient consumption, actual usage and variance reports (RPT-16). | Not started | AT-RPT-113 |
+| FR-RPT-013 | RPT | Could | The system shall produce a customer purchase history report (RPT-25) for permitted roles. | Done, tested | AT-RPT-111 |
+| FR-RPT-014 | RPT | Should | The system shall produce a kitchen preparation-time report (RPT-15) by station, item and hour with average, 90… | Done, tested | AT-RPT-112 |
+| FR-RPT-015 | RPT | Should | The system shall produce ingredient consumption, actual usage and variance reports (RPT-16). | Done, tested | AT-RPT-113 |
 | FR-RPT-016 | RPT | Must | The system shall produce inventory valuation and low-stock reports (RPT-17, RPT-18). | Done | AT-RPT-114 |
-| FR-RPT-017 | RPT | Should | The system shall produce a wastage report (RPT-19) by ingredient, item, reason, station and value. | Not started | AT-RPT-115 |
-| FR-RPT-018 | RPT | Should | The system shall produce purchase and supplier reports (RPT-20, RPT-21). | Not started | AT-RPT-116 |
-| FR-RPT-019 | RPT | Should | The system shall produce an expense report (RPT-22) by category, branch, period and payment method. | Not started | AT-RPT-117 |
-| FR-RPT-020 | RPT | Should | The system shall produce food cost and gross margin reports (RPT-23) per item and category using theoretical a… | Not started | AT-RPT-118 |
+| FR-RPT-017 | RPT | Should | The system shall produce a wastage report (RPT-19) by ingredient, item, reason, station and value. | Done, tested | AT-RPT-115 |
+| FR-RPT-018 | RPT | Should | The system shall produce purchase and supplier reports (RPT-20, RPT-21). | Done, tested | AT-RPT-116 |
+| FR-RPT-019 | RPT | Should | The system shall produce an expense report (RPT-22) by category, branch, period and payment method. | Done, tested | AT-RPT-117 |
+| FR-RPT-020 | RPT | Should | The system shall produce food cost and gross margin reports (RPT-23) per item and category using theoretical a… | Done, tested | AT-RPT-118 |
 | FR-RPT-021 | RPT | Must | The system shall produce a cashier shift report (RPT-24) with expected and counted cash and variance per sessi… | Done | AT-RPT-119 |
 | FR-RPT-022 | RPT | Must | The system shall support filters for date, time, branch, category, employee, order type and payment method whe… | Partial | AT-RPT-03 |
 | FR-RPT-023 | RPT | Must | The system shall export reports to PDF (with Khmer text) and Excel (.xlsx) and support printing, with exported… | Partial | AT-RPT-02 |

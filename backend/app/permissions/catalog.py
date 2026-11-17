@@ -52,6 +52,30 @@ PERMISSIONS: dict[str, tuple[str, str]] = {
     "audit.view": ("AUD", "Search the audit trail"),
     "audit.export": ("AUD", "Export the audit trail"),
     "notifications.view": ("NOTIF", "Receive in-app notifications"),
+    # Phase 2
+    "customers.view": ("CUST", "Search and view customers"),
+    "customers.manage": ("CUST", "Create, edit, merge and anonymise customers"),
+    "customers.contact.view": ("CUST", "See unmasked phone and email"),
+    "reservations.view": ("RSV", "View reservations and the waiting list"),
+    "reservations.manage": ("RSV", "Create, change, seat and cancel reservations"),
+    "recipes.view": ("RCP", "View recipes and food cost"),
+    "recipes.manage": ("RCP", "Create recipe versions and publish them"),
+    "suppliers.view": ("PUR", "View suppliers"),
+    "suppliers.manage": ("PUR", "Create and edit suppliers"),
+    "purchases.view": ("PUR", "View requests, POs, receipts, invoices"),
+    "purchases.request": ("PUR", "Create purchase requests"),
+    "purchases.create": ("PUR", "Create and submit purchase orders, invoices, returns"),
+    "purchases.approve": ("PUR", "Approve purchase orders within limit"),
+    "goods_receipts.post": ("PUR", "Record and post goods receipts"),
+    "supplier_payments.create": ("PUR", "Record supplier invoices and payments"),
+    "expenses.view": ("EXP", "View expenses"),
+    "expenses.create": ("EXP", "Record and submit expenses"),
+    "expenses.approve": ("EXP", "Approve or reject expenses within limit"),
+    "expenses.pay": ("EXP", "Record expense payments"),
+    "employees.view": ("STAFF", "View employees and schedules"),
+    "employees.manage": ("STAFF", "Manage employees, departments, schedules"),
+    "promotions.view": ("PROMO", "View promotions"),
+    "promotions.manage": ("PROMO", "Create and edit promotions and codes"),
 }
 
 _VIEW_ALL = [p for p in PERMISSIONS if p.endswith(".view") or p in ("report.financial.view", "report.export", "audit.export", "orders.view_all")]
@@ -83,6 +107,28 @@ ROLE_GRANTS: dict[str, list[str]] = {
              "cash.view", "cash.approve", "inventory.view", "audit.view", "menu.view"],
     "AUDITOR": _VIEW_ALL,
 }
+PHASE2_GRANTS: dict[str, list[str]] = {
+    "SYSADMIN": ["employees.view"],
+    "OWNER": ["customers.manage", "customers.contact.view", "recipes.view", "suppliers.view", "purchases.view", "purchases.approve", "expenses.view", "expenses.approve",
+              "employees.view", "promotions.view", "reservations.view"],
+    "GM": ["customers.view", "customers.manage", "customers.contact.view", "reservations.view", "reservations.manage", "recipes.view", "recipes.manage", "suppliers.view",
+           "purchases.view", "purchases.approve", "expenses.view", "expenses.create", "expenses.approve", "employees.view", "employees.manage", "promotions.view", "promotions.manage"],
+    "BRMGR": ["customers.view", "customers.manage", "customers.contact.view", "reservations.view", "reservations.manage", "recipes.view", "suppliers.view", "purchases.view",
+              "purchases.approve", "expenses.view", "expenses.create", "expenses.approve", "employees.view", "employees.manage", "promotions.view"],
+    "SUPV": ["customers.view", "customers.manage", "customers.contact.view", "reservations.view", "reservations.manage", "expenses.view", "expenses.create", "employees.view", "promotions.view"],
+    "CASHIER": ["customers.view", "customers.manage", "customers.contact.view", "reservations.view", "reservations.manage", "expenses.pay", "promotions.view"],
+    "WAITER": ["customers.view", "reservations.view", "reservations.manage"],
+    "KMGR": ["recipes.view", "recipes.manage", "purchases.view", "purchases.request", "employees.view"],
+    "COOK": ["recipes.view"],
+    "BAR": ["recipes.view", "promotions.view"],
+    "INVOFF": ["recipes.view", "suppliers.view", "purchases.view", "purchases.request", "goods_receipts.post"],
+    "PUROFF": ["suppliers.view", "suppliers.manage", "purchases.view", "purchases.request", "purchases.create", "expenses.view", "expenses.create"],
+    "ACCT": ["customers.view", "recipes.view", "suppliers.view", "purchases.view", "supplier_payments.create", "expenses.view", "expenses.create", "expenses.pay", "promotions.view"],
+}
+for role, extra in PHASE2_GRANTS.items():
+    ROLE_GRANTS[role].extend(extra)
+ROLE_GRANTS["AUDITOR"].extend(p for p in ("customers.view", "reservations.view", "recipes.view", "suppliers.view", "purchases.view", "expenses.view", "employees.view", "promotions.view")
+                              if p not in ROLE_GRANTS["AUDITOR"])
 for grants in ROLE_GRANTS.values():
     grants.append("notifications.view")
 
@@ -106,6 +152,10 @@ ROLE_LIMITS: dict[str, dict[str, Decimal]] = {
     "ACCT": {"refund_amount": Decimal("200"), "cash_variance": Decimal("500")},
     "OWNER": {"discount_pct": Decimal("100"), "discount_amount": _INF, "void_amount": _INF, "refund_amount": _INF, "adjustment_value": _INF, "cash_variance": _INF},
 }
+# Phase 2 illustrative limits (AT-PUR-01: GM needed above 500; AT-EXP-01: supervisor expense limit 50).
+for _role, _vals in {"BRMGR": {"po_amount": "500", "expense_amount": "300"}, "GM": {"po_amount": "5000", "expense_amount": "2000"}, "OWNER": {"po_amount": "999999", "expense_amount": "999999"},
+                     "SUPV": {"expense_amount": "50"}, "PUROFF": {"expense_amount": "50"}, "ACCT": {"expense_amount": "100"}}.items():
+    ROLE_LIMITS.setdefault(_role, {}).update({k: Decimal(v) for k, v in _vals.items()})
 
 # Which permission an approver needs for each approval action.
 APPROVAL_ACTIONS: dict[str, tuple[str, str]] = {

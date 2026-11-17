@@ -79,6 +79,15 @@ def seed_reference(db: Session) -> dict:
     _get_or_create(db, PriceList, {"code": "STANDARD"}, name="Standard")
     _get_or_create(db, ExchangeRate, {"base_currency": "USD", "quote_currency": "KHR", "effective_from": EPOCH}, rate=Decimal("4100"), source="Illustrative seed (verify V-04)")
 
+    from app.models import Department, ExpenseCategory, Position
+
+    for name in ("Management", "Front of house", "Kitchen", "Bar", "Stores", "Finance", "Delivery"):
+        _get_or_create(db, Department, {"name": name})
+    for name in ("General Manager", "Branch Manager", "Supervisor", "Cashier", "Waiter", "Kitchen Manager", "Cook", "Bartender", "Inventory Officer", "Purchasing Officer", "Accountant", "Rider"):
+        _get_or_create(db, Position, {"name": name})
+    for name, required in [("Rent", True), ("Electricity", True), ("Water", False), ("Internet", False), ("Salaries", False), ("Cleaning supplies", False),
+                           ("Equipment repairs", True), ("Delivery costs", False), ("Platform commissions", False)]:
+        _get_or_create(db, ExpenseCategory, {"name_en": name}, attachment_required=required)
     restaurant = db.scalar(select(Restaurant)) or Restaurant(legal_name="RMS Demo Restaurant Co., Ltd.", name_en="RMS Demo Restaurant", name_km="ភោជនីយដ្ឋានសាកល្បង")
     db.add(restaurant)
     db.flush()

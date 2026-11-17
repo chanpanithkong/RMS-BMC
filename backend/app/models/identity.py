@@ -51,7 +51,7 @@ class User(IdMixin, TimestampMixin, Base):
     full_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(Text)
     pin_hash: Mapped[str | None] = mapped_column(Text)
-    employee_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)  # FK added with STAFF employees (Phase 2)
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("employees.id"), unique=True)
     preferred_language: Mapped[str] = mapped_column(String(2), default="en")
     status: Mapped[str] = mapped_column(String(10), default="Active")
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)

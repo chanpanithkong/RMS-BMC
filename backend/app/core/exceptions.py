@@ -66,8 +66,10 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(IntegrityError)
     async def integrity_error(request: Request, exc: IntegrityError):
-        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
-        log.info("integrity error on %s", constraint)
+        diag = getattr(exc.orig, "diag", None)
+        constraint = getattr(diag, "constraint_name", None)
+        # message_primary names the column/constraint but not the row values (those are in diag.message_detail)
+        log.warning("integrity error on %s: %s", constraint, getattr(diag, "message_primary", type(exc.orig).__name__))
         return JSONResponse(_body("CONFLICT", "This change conflicts with existing data.", request, [{"constraint": constraint}] if constraint else []), status_code=409)
 
     @app.exception_handler(StaleDataError)

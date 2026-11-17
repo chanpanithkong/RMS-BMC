@@ -90,7 +90,7 @@ def top_items(ctx: Ctx, start: date, end: date, n: int = 10) -> dict:
     return {"by_quantity": [{"item": a, "quantity": b} for a, b, _ in by_qty]}
 
 
-def dashboard(ctx: Ctx, date_from: date | None, date_to: date | None) -> dict:
+def dashboard(ctx: Ctx, date_from: date | None, date_to: date | None, trend: str = "day") -> dict:
     """FR-DASH-001: only widgets the role is allowed to see; financial values only with report.financial.view."""
     start, end = _range(date_from, date_to, ctx)
     out: dict = {"business_date": ctx.business_date(), "from": start, "to": end, "calculated_at": utcnow(), "widgets": {}}
@@ -101,7 +101,12 @@ def dashboard(ctx: Ctx, date_from: date | None, date_to: date | None) -> dict:
         w["sales"] = s
         w["payments_by_method"] = payments_by_method(ctx, start, end)
         w["top_items"] = top_items(ctx, start, end)
-        w["indicative_operating_result"] = {"value": s["net_sales"], "label": "indicative — not accounting profit; COGS and expenses arrive with Phase 2"}
+        from app.services import reports_advanced as adv
+
+        costs = adv.cost_indicators(ctx, start, end, s["net_sales"])  # FR-DASH-010
+        w["indicative_operating_result"] = costs.pop("indicative_operating_result")  # FR-DASH-011
+        w["costs"] = costs
+        w["trends"] = {"grain": trend, "series": adv.trends(ctx, start, end, trend)}  # FR-DASH-013
     if ctx.can("orders.view_all") or financial:
         w["orders"] = order_counts(ctx, start, end, w.get("sales", {}).get("net_sales") if financial else None)
         w["table_occupancy"] = occupancy(ctx)
@@ -128,17 +133,35 @@ CATALOGUE = {
 }
 
 
+def _all_reports() -> dict:
+    """id -> (name, any-of permissions). Phase 1 reports above, Phase 2 in reports_advanced."""
+    from app.services.reports_advanced import REPORTS
+
+    out = {k: (n, (p,)) for k, (n, p) in CATALOGUE.items()}
+    out.update({k: (n, perms) for k, (n, perms, _) in REPORTS.items()})
+    return dict(sorted(out.items()))
+
+
 def catalogue(ctx: Ctx) -> list[dict]:
-    return [{"id": k, "name": n, "available": ctx.can(p)} for k, (n, p) in CATALOGUE.items() if ctx.can(p) or ctx.can("report.view")]
+    return [{"id": k, "name": n, "available": any(ctx.can(p) for p in perms)} for k, (n, perms) in _all_reports().items()
+            if any(ctx.can(p) for p in perms) or ctx.can("report.view")]
 
 
-def run(ctx: Ctx, report_id: str, date_from: date | None, date_to: date | None) -> dict:
-    if report_id not in CATALOGUE:
-        raise NotFound("Report (Phase 2 and 3 reports are not built yet)")
-    name, perm = CATALOGUE[report_id]
-    if not ctx.can(perm):
+def run(ctx: Ctx, report_id: str, date_from: date | None, date_to: date | None, filters: dict | None = None) -> dict:
+    from app.services.reports_advanced import REPORTS
+
+    reports = _all_reports()
+    if report_id not in reports:
+        raise NotFound("Report (RPT-06 and Phase 3 reports are not built yet)")
+    name, perms = reports[report_id]
+    if not any(ctx.can(p) for p in perms):
         raise Forbidden(f"You don't have access to {name}.", code="REPORT_FORBIDDEN")
     start, end = _range(date_from, date_to, ctx)
+    if report_id in REPORTS:
+        rows, summary = REPORTS[report_id][2](ctx, start, end, {k: v for k, v in (filters or {}).items() if v is not None})
+        return {"id": report_id, "name": name, "from": start, "to": end, "branch": ctx.branch.code, "currency": "USD", "generated_at": utcnow(),
+                "generated_by": ctx.user.username, "filters": {k: v for k, v in (filters or {}).items() if v is not None}, "summary": summary, "rows": rows,
+                "note": "Figures derived from recorded transactions."}
     db = ctx.db
     rows: list[dict]
     summary: dict = {}

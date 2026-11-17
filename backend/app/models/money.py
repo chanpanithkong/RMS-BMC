@@ -135,7 +135,7 @@ class CashMovement(IdMixin, Base):
     currency: Mapped[str] = mapped_column(String(3))
     amount: Mapped[Decimal]
     reason: Mapped[str] = mapped_column(Text)
-    expense_id: Mapped[uuid.UUID | None]  # FK added with EXP (Phase 2)
+    expense_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("expenses.id"))
     approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
