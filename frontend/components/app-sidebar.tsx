@@ -22,7 +22,7 @@ import { useRms } from "@/lib/rms/store"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { role, lang, notices, branch } = useRms()
+  const { role, roles, lang, notices, branch } = useRms()
   const active = navForPath(pathname)?.key
   const unread = notices.filter((n) => !n.read).length
 
@@ -51,7 +51,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         {navGroups.map((g) => {
-          const items = g.items.filter((i) => i.roles.includes(role))
+          const items = g.items.filter((i) => i.roles.some((r) => roles.includes(r)))
           if (!items.length) return null
           return (
             <SidebarGroup key={g.en}>

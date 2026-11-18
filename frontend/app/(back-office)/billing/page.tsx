@@ -6,13 +6,15 @@ import {
   CircleDollarSign,
   Eye,
   Printer,
+  RotateCcw,
   ShieldCheck,
   Undo2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
+import { RecordDialog } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
-import { confirmAction, requestApproval } from "@/components/rms/dialog-host"
+import { confirmAction } from "@/components/rms/dialog-host"
 import {
   MoneyText,
   Notice,
@@ -24,119 +26,71 @@ import {
   useTab,
 } from "@/components/rms/kit"
 import { PaymentDialog } from "@/components/rms/pos-dialogs"
-import { calcBill, khr, paymentStatus, usd } from "@/lib/rms/billing"
-import { useRms } from "@/lib/rms/store"
+import * as billing from "@/lib/api/billing"
+import { refreshOrder, report, withApproval } from "@/lib/api/pos"
+import { can, useSession } from "@/lib/api/session"
+import { khr, usd } from "@/lib/rms/billing"
 
-const refundsSeed = [
-  {
-    id: "RF-0088",
-    receipt: "R-2026-4402",
-    payment: "Cash USD",
-    amount: 12.4,
-    reason: "Wrong order",
-    requester: "Lina Chhay",
-    approver: "—",
-    status: "Pending Approval",
-  },
-  {
-    id: "RF-0087",
-    receipt: "R-2026-4387",
-    payment: "KHQR",
-    amount: 6.5,
-    reason: "Quality issue",
-    requester: "Lina Chhay",
-    approver: "Dara Pich",
-    status: "Approved",
-  },
-  {
-    id: "RF-0086",
-    receipt: "R-2026-4371",
-    payment: "Card",
-    amount: 21,
-    reason: "Overcharged",
-    requester: "Chenda Roeun",
-    approver: "Sopheak Nou",
-    status: "Rejected",
-  },
-]
-const recon = [
-  {
-    id: "1",
-    method: "KHQR",
-    reference: "KQ-77120",
-    recorded: 18.4,
-    provider: 18.4,
-  },
-  {
-    id: "2",
-    method: "KHQR",
-    reference: "KQ-77121",
-    recorded: 42.1,
-    provider: 42.1,
-  },
-  {
-    id: "3",
-    method: "Card",
-    reference: "TID-0091",
-    recorded: 66,
-    provider: 63.5,
-  },
-  {
-    id: "4",
-    method: "Bank Transfer",
-    reference: "BT-2231",
-    recorded: 42,
-    provider: 0,
-  },
-]
+const money = (cur: string, v: number) => (cur === "KHR" ? khr(v) : usd(v))
 
 export default function BillingPage() {
-  const { orders } = useRms()
   const router = useRouter()
+  const { me } = useSession()
+  const day = me?.business_date
+  const canRefund = can(me, "refunds.request")
+  const canDecide = can(me, "refunds.approve")
   const [tab, setTab] = useTab("bills")
   const [pay, setPay] = React.useState<string | null>(null)
-  const [refunds, setRefunds] = React.useState(refundsSeed)
-  const bills = orders.filter(
-    (o) => o.status !== "Draft" && o.status !== "Cancelled"
-  )
-  const payments = orders.flatMap((o) =>
-    o.payments.map((p) => ({
-      ...p,
-      order: o.no,
-      orderId: o.id,
-      receipt: o.receiptNo ?? "—",
-    }))
-  )
-  const collected = payments.reduce((s, p) => s + p.applied, 0)
-  const setRefund = (
-    id: string,
-    patch: Partial<(typeof refundsSeed)[number]>
-  ) => setRefunds((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  const [refundFor, setRefundFor] = React.useState<billing.PaymentRow | null>(null)
+  const [orders, setOrders] = React.useState<billing.OrderRow[]>([])
+  const [payments, setPayments] = React.useState<billing.PaymentRow[]>([])
+  const [refunds, setRefunds] = React.useState<billing.RefundRow[]>([])
+
+  /** Everything on this page is read from the server for the current business day. */
+  const reload = React.useCallback(() => {
+    if (!day) return
+    Promise.all([billing.listOrders(day), billing.listPayments(day), billing.listRefunds()]).then(([o, p, r]) => {
+      setOrders(o)
+      setPayments(p)
+      setRefunds(r)
+    }, report)
+  }, [day])
+  React.useEffect(reload, [reload])
+
+  const run = (fn: () => Promise<unknown>, done: string) =>
+    fn().then(() => {
+      toast.success(done)
+      reload()
+    }, report)
+
+  const confirmed = payments.filter((p) => p.state === "Confirmed")
+  const collected = confirmed.reduce((s, p) => s + p.base, 0)
+  const receipts = [...new Map(payments.filter((p) => p.receipt !== "—").map((p) => [p.receipt, p])).values()]
+
   return (
     <Page>
       <PageHeader
         title="Bills & payments"
-        description="Orders, bills, payments, refunds and receipts are separate records. Finalised records are never edited."
+        description={`Orders, bills, payments, refunds and receipts are separate records. Finalised records are never edited.${day ? ` Business day ${day}.` : ""}`}
       />
       <PageTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "bills", label: "Bills" },
+          { value: "bills", label: "Bills", count: orders.length },
           { value: "payments", label: "Payments", count: payments.length },
           { value: "receipts", label: "Receipts" },
           {
             value: "refunds",
             label: "Refunds",
-            count: refunds.filter((r) => r.status === "Pending Approval")
-              .length,
+            count: refunds.filter((r) => r.status === "Requested").length,
           },
           { value: "reconciliation", label: "Reconciliation" },
         ]}
       />
       {tab === "bills" && (
         <DataTable
-          rows={bills}
+          rows={orders}
           pageSize={12}
           exportName="bills"
           onRowClick={(o) => router.push(`/orders/${o.id}`)}
@@ -145,7 +99,6 @@ export default function BillingPage() {
               key: "payment",
               label: "Payment",
               options: ["Unpaid", "Partially Paid", "Paid"],
-              value: paymentStatus,
             },
           ]}
           columns={[
@@ -154,51 +107,19 @@ export default function BillingPage() {
               header: "Order",
               render: (o) => <span className="font-medium">{o.no}</span>,
             },
-            {
-              key: "where",
-              header: "Table / pickup",
-              value: (o) => o.table ?? o.pickup ?? o.customer ?? "—",
-            },
-            {
-              key: "sub",
-              header: "Subtotal",
-              align: "right",
-              value: (o) => calcBill(o).subtotal,
-              render: (o) => usd(calcBill(o).subtotal),
-            },
-            {
-              key: "svc",
-              header: "Service",
-              align: "right",
-              value: (o) => calcBill(o).service,
-              render: (o) => usd(calcBill(o).service),
-            },
-            {
-              key: "tax",
-              header: "Tax",
-              align: "right",
-              value: (o) => calcBill(o).tax,
-              render: (o) => usd(calcBill(o).tax),
-            },
+            { key: "where", header: "Table / pickup" },
+            { key: "created", header: "Opened" },
+            { key: "status", header: "Order", render: (o) => <StatusBadge status={o.status} /> },
             {
               key: "total",
               header: "Total",
               align: "right",
-              value: (o) => calcBill(o).total,
-              render: (o) => <MoneyText value={calcBill(o).total} dual />,
-            },
-            {
-              key: "bal",
-              header: "Balance",
-              align: "right",
-              value: (o) => calcBill(o).balance,
-              render: (o) => usd(calcBill(o).balance),
+              render: (o) => <MoneyText value={o.total} dual />,
             },
             {
               key: "payment",
               header: "Payment",
-              value: paymentStatus,
-              render: (o) => <StatusBadge status={paymentStatus(o)} />,
+              render: (o) => <StatusBadge status={o.payment} />,
             },
           ]}
           rowActions={(o) => [
@@ -210,8 +131,9 @@ export default function BillingPage() {
             {
               label: "Take payment",
               icon: CircleDollarSign,
-              hidden: () => calcBill(o).balance === 0,
-              onClick: () => setPay(o.id),
+              hidden: () => o.payment === "Paid" || o.status !== "Open",
+              // The payment dialog works on the order held in the store, so load it first.
+              onClick: () => refreshOrder(o.id).then(() => setPay(o.id), report),
             },
           ]}
         />
@@ -219,13 +141,13 @@ export default function BillingPage() {
       {tab === "payments" && (
         <>
           <section className="grid gap-3 sm:grid-cols-3">
+            <Stat label="Collected today" value={usd(collected)} hint="Collections, not sales" />
             <Stat
-              label="Collected today"
-              value={usd(collected)}
-              hint="Collections, not sales"
+              label="Pending electronic"
+              value={payments.filter((p) => p.state === "Pending").length}
+              tone="warning"
             />
-            <Stat label="Pending electronic" value={1} tone="warning" />
-            <Stat label="Failed" value={0} />
+            <Stat label="Failed or voided" value={payments.filter((p) => p.state === "Failed" || p.state === "Voided").length} />
           </section>
           <DataTable
             rows={payments}
@@ -240,34 +162,27 @@ export default function BillingPage() {
             ]}
             columns={[
               { key: "time", header: "Time" },
-              { key: "order", header: "Order" },
+              { key: "billNo", header: "Bill" },
               { key: "method", header: "Method" },
               {
                 key: "tendered",
                 header: "Tendered",
                 align: "right",
-                render: (p) =>
-                  p.currency === "USD" ? usd(p.tendered) : khr(p.tendered),
+                render: (p) => money(p.currency, p.tendered),
               },
               {
-                key: "applied",
-                header: "Applied",
+                key: "base",
+                header: "Applied (USD)",
                 align: "right",
-                render: (p) => usd(p.applied),
+                render: (p) => usd(p.base),
               },
               {
                 key: "change",
                 header: "Change",
                 align: "right",
-                render: (p) =>
-                  p.changeCurrency === "USD" ? usd(p.change) : khr(p.change),
+                render: (p) => (p.change ? money(p.changeCurrency, p.change) : "—"),
               },
-              {
-                key: "reference",
-                header: "Reference",
-                render: (p) => p.reference ?? "—",
-              },
-              { key: "session", header: "Session" },
+              { key: "receipt", header: "Receipt" },
               {
                 key: "state",
                 header: "State",
@@ -279,6 +194,7 @@ export default function BillingPage() {
                 label: "Void payment",
                 icon: X,
                 destructive: true,
+                hidden: () => p.state !== "Confirmed" || p.billStatus === "Paid",
                 onClick: () =>
                   confirmAction({
                     title: "Void this payment?",
@@ -287,13 +203,18 @@ export default function BillingPage() {
                     requireReason: true,
                     destructive: true,
                     confirmLabel: "Void",
-                    onConfirm: () =>
-                      requestApproval({
-                        action: `Void payment on ${p.order}`,
-                        amount: usd(p.applied),
-                        onApproved: () => toast.success("Payment voided"),
-                      }),
+                    onConfirm: (reason) =>
+                      void run(
+                        () => withApproval(`Void ${p.method} payment on ${p.billNo}`, (approvalId) => billing.voidPayment(p.id, reason, approvalId)),
+                        "Payment voided"
+                      ),
                   }),
+              },
+              {
+                label: "Request refund",
+                icon: RotateCcw,
+                hidden: () => p.state !== "Confirmed" || !canRefund,
+                onClick: () => setRefundFor(p),
               },
             ]}
           />
@@ -301,28 +222,21 @@ export default function BillingPage() {
       )}
       {tab === "receipts" && (
         <DataTable
-          rows={orders.filter((o) => o.receiptNo)}
+          rows={receipts}
           exportName="receipts"
+          emptyTitle="No receipts today"
           columns={[
-            { key: "receiptNo", header: "Receipt" },
-            { key: "no", header: "Order" },
-            {
-              key: "total",
-              header: "Total",
-              align: "right",
-              value: (o) => calcBill(o).total,
-              render: (o) => usd(calcBill(o).total),
-            },
-            { key: "business", header: "Business day" },
+            { key: "receipt", header: "Receipt" },
+            { key: "billNo", header: "Bill" },
+            { key: "time", header: "Time" },
+            { key: "method", header: "Last payment" },
           ]}
-          rowActions={(o) => [
+          rowActions={(p) => [
             {
               label: "Reprint (COPY)",
               icon: Printer,
               onClick: () =>
-                toast.success(
-                  `${o.receiptNo} reprint queued, marked COPY; audit entry added`
-                ),
+                billing.reprintReceipt(p.billId).then((r) => toast.success(`${r.receipt_no} reprint queued, marked ${r.label}`), report),
             },
           ]}
         />
@@ -331,19 +245,18 @@ export default function BillingPage() {
         <DataTable
           rows={refunds}
           exportName="refunds"
+          emptyTitle="No refunds"
           columns={[
-            { key: "id", header: "Refund" },
-            { key: "receipt", header: "Receipt" },
-            { key: "payment", header: "Original payment" },
+            { key: "refundNo", header: "Refund" },
+            { key: "created", header: "Requested" },
+            { key: "method", header: "Original payment" },
             {
               key: "amount",
               header: "Amount",
               align: "right",
-              render: (r) => usd(r.amount),
+              render: (r) => money(r.currency, r.amount),
             },
             { key: "reason", header: "Reason" },
-            { key: "requester", header: "Requested by" },
-            { key: "approver", header: "Approver" },
             {
               key: "status",
               header: "Status",
@@ -354,85 +267,64 @@ export default function BillingPage() {
             {
               label: "Approve",
               icon: ShieldCheck,
-              hidden: () => r.status !== "Pending Approval",
+              hidden: () => !canDecide || r.status !== "Requested",
               onClick: () =>
-                requestApproval({
-                  action: `Refund ${r.id}`,
-                  amount: usd(r.amount),
-                  reason: r.reason,
-                  onApproved: (by) => {
-                    setRefund(r.id, { status: "Approved", approver: by })
-                    toast.success(`Refund approved by ${by}`)
-                  },
+                confirmAction({
+                  title: `Approve ${r.refundNo}?`,
+                  effect: `${money(r.currency, r.amount)} goes back by ${r.method}. Approval is recorded under your name.`,
+                  confirmLabel: "Approve refund",
+                  onConfirm: () => void run(() => billing.decideRefund(r.id, true), `${r.refundNo} approved`),
                 }),
             },
             {
               label: "Reject",
               icon: Undo2,
               destructive: true,
-              hidden: () => r.status !== "Pending Approval",
+              hidden: () => !canDecide || r.status !== "Requested",
               onClick: () =>
                 confirmAction({
-                  title: `Reject ${r.id}?`,
+                  title: `Reject ${r.refundNo}?`,
                   effect: "The requester is notified.",
                   requireReason: true,
                   destructive: true,
                   confirmLabel: "Reject",
-                  onConfirm: () => setRefund(r.id, { status: "Rejected" }),
+                  onConfirm: (note) => void run(() => billing.decideRefund(r.id, false, note), `${r.refundNo} rejected`),
                 }),
             },
           ]}
         />
       )}
       {tab === "reconciliation" && (
-        <>
-          <Notice tone="info">
-            Compares recorded electronic payments with provider or bank
-            references for business day 08/11/2026.
-          </Notice>
-          <DataTable
-            rows={recon}
-            exportName="reconciliation"
-            columns={[
-              { key: "method", header: "Method" },
-              { key: "reference", header: "Reference" },
-              {
-                key: "recorded",
-                header: "Recorded",
-                align: "right",
-                render: (r) => usd(r.recorded),
-              },
-              {
-                key: "provider",
-                header: "Provider",
-                align: "right",
-                render: (r) => usd(r.provider),
-              },
-              {
-                key: "diff",
-                header: "Difference",
-                align: "right",
-                value: (r) => r.recorded - r.provider,
-                render: (r) => usd(r.recorded - r.provider),
-              },
-              {
-                key: "state",
-                header: "State",
-                value: (r) =>
-                  r.recorded === r.provider ? "Matched" : "Difference",
-                render: (r) => (
-                  <StatusBadge
-                    status={
-                      r.recorded === r.provider ? "Matched" : "Difference"
-                    }
-                  />
-                ),
-              },
-            ]}
-          />
-        </>
+        <Notice tone="info">
+          Matching electronic payments against bank or provider statements is not
+          available yet. GrabFood payouts are reconciled under Delivery.
+        </Notice>
       )}
-      {pay && <PaymentDialog orderId={pay} open onClose={() => setPay(null)} />}
+      <RecordDialog
+        open={!!refundFor}
+        onOpenChange={(o) => !o && setRefundFor(null)}
+        title="Request refund"
+        description={refundFor ? `${refundFor.method} payment on ${refundFor.billNo}, ${usd(refundFor.base)} applied. A manager approves it.` : ""}
+        fields={[
+          { name: "amount", label: "Amount (USD)", type: "number", min: 0.01, required: true },
+          { name: "reason", label: "Reason", required: true },
+        ]}
+        initial={{ amount: String(refundFor?.base ?? "") }}
+        onSubmit={(v) => {
+          const p = refundFor
+          if (p) void run(() => billing.requestRefund(p.id, Number(v.amount), String(v.reason)), "Refund requested")
+        }}
+      />
+      {pay && (
+        <PaymentDialog
+          orderId={pay}
+          open
+          onClose={() => {
+            setPay(null)
+            reload()
+          }}
+        />
+      )}
     </Page>
   )
 }

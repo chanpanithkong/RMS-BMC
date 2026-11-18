@@ -144,6 +144,8 @@ def test_cashier_session_blind_close_and_variance(api):
     assert c.post(f"/cashier-sessions/{s['id']}/approve-variance", {"reason": "Counting error"}).status_code == 403
     r = gm.post(f"/cashier-sessions/{s['id']}/approve-variance", {"reason": "Counting error"}).json()
     assert r["status"] == "Closed"
+    assert r["user_name"] == "Cashier" and r["approved_by_name"] == "Gm"
+    assert [(x["kind"], x["currency"], money(x["amount"]), x["reason"]) for x in r["movements"]] == [("PaidOut", "USD", Decimal("3"), "Ice delivery")]
 
 
 def test_concurrent_payments_do_not_overpay(api, engine):

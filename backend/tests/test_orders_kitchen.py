@@ -75,6 +75,8 @@ def test_at_kds_01_routing_and_at_pos_02_duplicate_send(api):
     assert sorted(x["station_code"] for x in r1.json()["tickets"]) == ["BEV", "HOT"]
     hot = api("cook").get("/kitchen/stations/HOT/open-tickets").json()
     assert len(hot) == 1 and [i["name_en"] for i in hot[0]["items"]] == ["Fried Rice"]
+    first = hot[0]["items"][0]  # the kitchen screen is built from tickets alone (cooks can't read orders)
+    assert first["status"] == "Sent" and first["void_type"] is None and first["started_at"] is None and first["ready_at"] is None
     bev = api("cook").get("/kitchen/stations/BEV/open-tickets").json()
     assert [i["name_en"] for i in bev[0]["items"]] == ["Iced Coffee"]
     order = u.get(f"/orders/{o['id']}").json()

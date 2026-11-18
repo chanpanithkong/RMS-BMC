@@ -3,8 +3,9 @@
 import { Check, ChefHat, Clock3, Menu as MenuIcon } from "lucide-react"
 import { toast } from "sonner"
 import { LinkButton } from "@/components/rms/kit"
+import * as pos from "@/lib/api/pos"
 import { kitchenStatus } from "@/lib/rms/billing"
-import { minLabel, rms, useClock, useRms } from "@/lib/rms/store"
+import { minLabel, useClock, useRms } from "@/lib/rms/store"
 import type { Order, Station } from "@/lib/rms/types"
 import { cn } from "@/lib/utils"
 
@@ -27,6 +28,7 @@ function cell(o: Order, s: Station) {
 
 export default function ExpoPage() {
   const { orders } = useRms()
+  pos.useLiveSync(["HOT", "COLD", "BEV", "DESSERT", "BAR"])
   const at = useClock()
   const rows = orders.filter(
     (o) =>
@@ -118,10 +120,9 @@ export default function ExpoPage() {
                   <td className="rounded-r-lg px-3 text-right">
                     <button
                       disabled={!o.lines.some((l) => l.status === "Ready")}
-                      onClick={() => {
-                        rms.serveAll(o.id)
-                        toast.success(`${o.no} handed over`)
-                      }}
+                      onClick={() =>
+                        pos.serveAll(o.id).then(() => toast.success(`${o.no} handed over`), pos.report)
+                      }
                       className="touch-target rounded-lg bg-zinc-100 px-4 text-base font-bold text-zinc-950 disabled:opacity-30"
                     >
                       {o.type === "DINE_IN" ? "Served" : "Collected"}

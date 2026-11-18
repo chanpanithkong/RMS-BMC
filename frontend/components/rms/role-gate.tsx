@@ -9,9 +9,9 @@ import { useRms } from "@/lib/rms/store"
 /** UI-level gate only: the SRS requires the backend to enforce permissions on every request. */
 export function RoleGate({ children }: { children: React.ReactNode }) {
   const path = usePathname()
-  const { role } = useRms()
+  const { role, roles } = useRms()
   const nav = navForPath(path)
-  if (nav && !nav.roles.includes(role)) {
+  if (nav && !nav.roles.some((r) => roles.includes(r))) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-center">
         <ShieldAlert className="size-8 text-muted-foreground" aria-hidden />

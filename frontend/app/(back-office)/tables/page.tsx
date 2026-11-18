@@ -31,6 +31,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { confirmAction } from "@/components/rms/dialog-host"
+import { ApiError } from "@/lib/api/client"
+import * as pos from "@/lib/api/pos"
 import {
   FormRow,
   LinkButton,
@@ -42,7 +44,7 @@ import {
   Stat,
   opts,
 } from "@/components/rms/kit"
-import { initials, minLabel, rms, useClock, useRms } from "@/lib/rms/store"
+import { initials, minLabel, useClock, useRms } from "@/lib/rms/store"
 import type { FloorTable, TableState } from "@/lib/rms/types"
 import { cn } from "@/lib/utils"
 
@@ -127,10 +129,12 @@ function TableTile({ t, onClick }: { t: FloorTable; onClick: () => void }) {
 }
 
 export default function FloorPlanPage() {
-  const { tables, userName } = useRms()
+  const { tables } = useRms()
   const router = useRouter()
+  pos.useLiveSync()
   const areas = [...new Set(tables.map((t) => t.area))]
-  const [area, setArea] = React.useState("Indoor")
+  const [pickedArea, setArea] = React.useState("")
+  const area = areas.includes(pickedArea) ? pickedArea : (areas[0] ?? "")
   const [selId, setSelId] = React.useState<string | null>(null)
   const [guests, setGuests] = React.useState(2)
   const [mode, setMode] = React.useState<"main" | "transfer" | "combine">(
@@ -155,28 +159,42 @@ export default function FloorPlanPage() {
     (t) => t.state === "Available" && !t.outOfService && t.id !== selId
   )
 
+  /** Run a table action against the API; the server's message is shown if it refuses. */
+  const act = (fn: () => Promise<unknown>, done?: string) => {
+    close()
+    fn().then(() => done && toast.success(done), pos.report)
+  }
+
   const seat = () => {
     if (!sel) return
-    const go = () => {
-      rms.seat(sel.code, guests, userName.split(" ")[0])
-      toast.success(`Seated at ${sel.code}`)
-      router.push(`/pos?table=${sel.code}&guests=${guests}`)
-    }
-    if (guests > sel.capacity)
-      confirmAction({
-        title: "Party is larger than this table",
-        effect: `${guests} guests at a table for ${sel.capacity}. Seat them anyway?`,
-        confirmLabel: "Seat anyway",
-        onConfirm: go,
-      })
-    else if (sel.state === "Reserved")
-      confirmAction({
-        title: "This table is reserved",
-        effect: `${sel.upcoming}. Seating a walk-in may delay that reservation.`,
-        confirmLabel: "Seat anyway",
-        onConfirm: go,
-      })
-    else go()
+    const t = sel
+    close()
+    const go = (o: { overCapacity?: boolean; overrideReservation?: boolean }) =>
+      pos.seatTable(t.id, guests, o).then(
+        (orderId) => {
+          toast.success(`Seated at ${t.code}`)
+          router.push(orderId ? `/pos?order=${orderId}` : `/pos?table=${t.code}&guests=${guests}`)
+        },
+        (e) => {
+          // The backend decides; ask before overriding, then try again.
+          if (e instanceof ApiError && e.code === "OVER_CAPACITY")
+            confirmAction({
+              title: "Party is larger than this table",
+              effect: `${e.message} Seat them anyway?`,
+              confirmLabel: "Seat anyway",
+              onConfirm: () => void go({ ...o, overCapacity: true }),
+            })
+          else if (e instanceof ApiError && e.code === "TABLE_RESERVED_SOON")
+            confirmAction({
+              title: "This table is reserved soon",
+              effect: `${e.message} Seating a walk-in may delay that reservation.`,
+              confirmLabel: "Seat anyway",
+              onConfirm: () => void go({ ...o, overrideReservation: true }),
+            })
+          else pos.report(e)
+        }
+      )
+    void go({})
   }
 
   return (
@@ -194,13 +212,13 @@ export default function FloorPlanPage() {
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
           label="Table occupancy"
-          value={`${Math.round((occ.length / active.length) * 100)}%`}
+          value={`${active.length ? Math.round((occ.length / active.length) * 100) : 0}%`}
           icon={Armchair}
           hint={`${occ.length} of ${active.length} tables`}
         />
         <Stat
           label="Seat occupancy"
-          value={`${Math.round((seated / seats) * 100)}%`}
+          value={`${seats ? Math.round((seated / seats) * 100) : 0}%`}
           icon={Users}
           hint={`${seated} of ${seats} seats`}
         />
@@ -219,15 +237,11 @@ export default function FloorPlanPage() {
         <Notice key={t.id} tone="danger">
           <span>
             Table {t.code} is Available but still linked to an open order.{" "}
-            <button
-              className="underline"
-              onClick={() => {
-                rms.clearFlag(t.code)
-                toast.success("Flag cleared")
-              }}
-            >
-              Resolve
-            </button>
+            {t.orderId && (
+              <Link className="underline" href={`/pos?order=${t.orderId}`}>
+                Open the order to resolve it
+              </Link>
+            )}
           </span>
         </Notice>
       ))}
@@ -321,14 +335,12 @@ export default function FloorPlanPage() {
                     <Button
                       disabled={!target}
                       onClick={() => {
+                        const to = tables.find((t) => t.code === target)
+                        if (!to) return
                         if (mode === "transfer") {
-                          rms.transferTable(sel.code, target)
-                          toast.success(`Party moved to ${target}`)
-                        } else {
-                          rms.combineTables([sel.code, target])
-                          toast.success(`${sel.code} and ${target} combined`)
-                        }
-                        close()
+                          if (!sel.orderId) return toast.error("This table has no open order to move.")
+                          act(() => pos.transfer(sel.orderId!, to.id), `Party moved to ${target}`)
+                        } else act(() => pos.combineTables([sel.id, to.id]), `${sel.code} and ${target} combined`)
                       }}
                     >
                       {mode === "transfer" ? "Move party" : "Combine"}
@@ -338,11 +350,7 @@ export default function FloorPlanPage() {
               ) : sel.outOfService ? (
                 <DialogFooter>
                   <Button
-                    onClick={() => {
-                      rms.setOutOfService(sel.code)
-                      toast.success("Back in service")
-                      close()
-                    }}
+                    onClick={() => act(() => pos.returnToService(sel.id), "Back in service")}
                   >
                     Return to service
                   </Button>
@@ -400,11 +408,7 @@ export default function FloorPlanPage() {
                           <Button
                             variant="outline"
                             className="h-11"
-                            onClick={() => {
-                              rms.printBill(sel.orderId!)
-                              toast.success("Bill printed")
-                              close()
-                            }}
+                            onClick={() => act(() => pos.printBill(sel.orderId!), "Bill printed")}
                           >
                             Print bill
                           </Button>
@@ -414,11 +418,7 @@ export default function FloorPlanPage() {
                     {sel.state === "Cleaning" && (
                       <Button
                         className="col-span-2 h-11"
-                        onClick={() => {
-                          rms.setTableState(sel.code, "Available")
-                          toast.success(`${sel.code} is available`)
-                          close()
-                        }}
+                        onClick={() => act(() => pos.setTableState(sel.id, "Available"), `${sel.code} is available`)}
                       >
                         <Check />
                         Cleaning done
@@ -428,11 +428,7 @@ export default function FloorPlanPage() {
                       <Button
                         variant="outline"
                         className="h-11"
-                        onClick={() => {
-                          rms.splitGroup(sel.group!)
-                          toast.success("Group split")
-                          close()
-                        }}
+                        onClick={() => act(() => pos.splitGroup(sel.group!), "Group split")}
                       >
                         Split group
                       </Button>
@@ -451,7 +447,7 @@ export default function FloorPlanPage() {
                         variant="destructive"
                         className="h-11"
                         onClick={() => {
-                          const code = sel.code
+                          const { code, id } = sel
                           close()
                           confirmAction({
                             title: `Take ${code} out of service?`,
@@ -464,7 +460,7 @@ export default function FloorPlanPage() {
                             ],
                             destructive: true,
                             confirmLabel: "Take out of service",
-                            onConfirm: (r) => rms.setOutOfService(code, r),
+                            onConfirm: (r) => act(() => pos.outOfService(id, r), `${code} is out of service`),
                           })
                         }}
                       >

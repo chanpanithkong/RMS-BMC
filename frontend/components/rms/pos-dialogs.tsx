@@ -34,7 +34,9 @@ import {
   toKhr,
   usd,
 } from "@/lib/rms/billing"
-import { modifierGroups, rms, useRms } from "@/lib/rms/store"
+import { modifierGroups, useRms } from "@/lib/rms/store"
+import { loadBills, pay, report, splitBills } from "@/lib/api/pos"
+import { ApiError } from "@/lib/api/client"
 import type {
   Discount,
   LineModifier,
@@ -98,7 +100,7 @@ export function ModifierDialog({
   const mods = groups.flatMap((g) =>
     g.modifiers
       .filter((m) => picked[g.id]?.includes(m.id))
-      .map((m) => ({ name: m.name, delta: m.delta }))
+      .map((m) => ({ id: m.id, name: m.name, delta: m.delta }))
   )
   const price =
     item.variants?.find((v) => v.name === variant)?.price ?? item.price
@@ -385,13 +387,26 @@ export function SplitDialog({
 
   const sum = round2(bills.reduce((s, n) => s + n, 0))
   const ok = sum === totals.total && bills.every((b) => b > 0)
+  const [saving, setSaving] = React.useState(false)
+  const save = async (m: "single" | "equal" | "items" | "seats") => {
+    setSaving(true)
+    try {
+      const made = await splitBills(order.id, m, count, Object.fromEntries(lines.map((l) => [l.id, assign[l.id] ?? 0])))
+      toast.success(m === "single" ? "Split removed" : `Bill split into ${made.length}`)
+      onClose()
+    } catch (e) {
+      report(e)
+    } finally {
+      setSaving(false)
+    }
+  }
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Split bill {order.no}</DialogTitle>
           <DialogDescription>
-            Sum of split bills must equal the original total.
+            Amounts below are a preview. The server calculates each bill exactly, and the split is fixed once paying starts.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -472,28 +487,12 @@ export function SplitDialog({
         </Notice>
         <DialogFooter>
           {order.splits && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                rms.setSplits(order.id, undefined)
-                onClose()
-              }}
-            >
+            <Button variant="outline" disabled={saving} onClick={() => void save("single")}>
               Remove split
             </Button>
           )}
-          <Button
-            disabled={!ok}
-            onClick={() => {
-              rms.setSplits(
-                order.id,
-                bills.map((total, i) => ({ label: `Bill ${i + 1}`, total }))
-              )
-              toast.success(`Bill split into ${count}`)
-              onClose()
-            }}
-          >
-            Confirm split
+          <Button disabled={!ok || saving} onClick={() => void save(mode as "equal" | "items" | "seats")}>
+            {saving ? "Splitting…" : "Confirm split"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -533,19 +532,14 @@ export function PaymentDialog({
   const [splitIdx, setSplitIdx] = React.useState(0)
   const [lastChange, setLastChange] = React.useState<string>()
   const [reprints, setReprints] = React.useState(0)
+  // Bills (and any split) live on the server; load them whenever the dialog opens.
+  React.useEffect(() => {
+    if (open) loadBills(orderId).catch(() => undefined)
+  }, [open, orderId])
   if (!order) return null
   const totals = calcBill(order)
   const split = order.splits?.[splitIdx]
-  const paidOnSplit = split
-    ? round2(
-        order.payments
-          .filter((p) => p.state === "Confirmed" && p.splitIndex === splitIdx)
-          .reduce((s, p) => s + p.applied, 0)
-      )
-    : 0
-  const balance = split
-    ? round2(Math.max(split.total - paidOnSplit, 0))
-    : totals.balance
+  const balance = split ? (split.balance ?? split.total) : totals.balance
   const method = methods.find((m) => m.id === methodId)!
   const num = Number(tendered)
   const result = method.cash
@@ -557,55 +551,40 @@ export function PaymentDialog({
         changeCurrency: changeCur,
       })
     : null
-  const hasSession = sessions.some((s) => s.status === "Open")
+  const hasSession = sessions.some((s) => s.status === "Open" && s.mine)
   const fullyPaid = totals.balance === 0
 
-  const submit = (amount?: number) => {
+  const submit = async (amount?: number) => {
     setErr("")
     const value = amount ?? num
-    if (method.cash && !hasSession)
-      return setErr("Open a cashier session before taking cash.")
+    // Cashier session, amounts, rounding and change are checked by the backend (BR-021).
     if (!method.cash && !ref.trim())
       return setErr("A reference is required for this payment method.")
     if (method.cash && !(value > 0)) return setErr("Enter the amount tendered.")
     setBusy(true)
-    setTimeout(() => {
-      const r = method.cash
-        ? cashResult({
-            method: "cash",
-            currency: method.currency,
-            tendered: value,
-            balance,
-            changeCurrency: changeCur,
-          })
-        : null
-      const applied = r ? r.applied : balance
-      rms.addPayment(order.id, {
+    try {
+      const r = await pay(order.id, {
         method: method.id,
         currency: method.currency,
-        tendered: method.cash ? value : balance,
-        rate: billing.usdKhr,
-        applied,
-        change: r?.change ?? 0,
-        changeCurrency: changeCur,
-        reference: ref || undefined,
-        state: "Confirmed",
-        splitIndex: split ? splitIdx : undefined,
+        tendered: method.cash ? value : undefined,
+        changeCurrency: method.cash ? changeCur : undefined,
+        reference: ref.trim() || undefined,
+        billId: split?.billId,
       })
-      if (r && r.change > 0)
-        setLastChange(changeCur === "USD" ? usd(r.change) : khr(r.change))
-      else setLastChange(undefined)
+      // Move on to the next split bill that still has a balance.
+      const next = r.splits?.findIndex((s) => (s.balance ?? 0) > 0)
+      if (next !== undefined && next >= 0) setSplitIdx(next)
+      const ch = r.change && Number(r.change.amount) > 0 ? r.change : null
+      setLastChange(ch ? (ch.currency === "USD" ? usd(Number(ch.amount)) : khr(Number(ch.amount))) : undefined)
       setTendered("")
       setRef("")
-      setBusy(false)
-      if (
-        split &&
-        r?.covered !== false &&
-        splitIdx + 1 < (order.splits?.length ?? 0)
-      )
-        setSplitIdx(splitIdx + 1)
       onPaid?.()
-    }, 300)
+    } catch (e) {
+      if (e instanceof ApiError) setErr(e.message)
+      else report(e)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -746,6 +725,7 @@ export function PaymentDialog({
                       onClick={() => setSplitIdx(i)}
                     >
                       {s.label} · {usd(s.total)}
+                      {s.balance === 0 && " ✓"}
                     </button>
                   ))}
                 </div>

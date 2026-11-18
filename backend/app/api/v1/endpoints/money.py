@@ -7,10 +7,11 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
+from sqlalchemy.orm import object_session
 
 from app.core.dependencies import Ctx, require
 from app.core.exceptions import NotFound
-from app.models import Bill, CashierSession, Payment, Receipt, Refund
+from app.models import Bill, CashierSession, CashMovement, Payment, Receipt, Refund, User
 from app.schemas.common import ORM, Page, Strict
 from app.services import billing as svc
 from app.services import cash as csvc
@@ -283,11 +284,20 @@ class SessionOut(BaseModel):
     variance_reason: str | None
     floats: dict[str, Decimal]
     results: list[dict] | None
+    user_name: str | None = None
+    approved_by_name: str | None = None
+    movements: list[dict] = []
 
 
 def session_out(s: CashierSession) -> dict:
+    db = object_session(s)
+    name = lambda uid: db.get(User, uid).full_name if uid else None  # noqa: E731
+    moves = db.scalars(select(CashMovement).where(CashMovement.session_id == s.id).order_by(CashMovement.created_at)).all()
     return {**{c: getattr(s, c) for c in ("id", "user_id", "business_date", "status", "opened_at", "closed_at", "approved_by", "variance_reason")},
-            "floats": {f.currency: f.amount for f in s.floats}, "results": csvc.result_rows(s) if s.status != "Open" else None}
+            "floats": {f.currency: f.amount for f in s.floats}, "results": csvc.result_rows(s) if s.status != "Open" else None,
+            "user_name": name(s.user_id), "approved_by_name": name(s.approved_by),
+            "movements": [{"id": m.id, "kind": m.kind, "currency": m.currency, "amount": m.amount, "reason": m.reason, "created_at": m.created_at,
+                           "approved_by_name": name(m.approved_by)} for m in moves]}
 
 
 @cash.post("", response_model=SessionOut, status_code=201, summary="Open your cashier session with an opening float")

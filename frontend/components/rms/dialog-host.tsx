@@ -32,6 +32,8 @@ interface ApprovalOptions {
   reason?: string
   onApproved: (approver: string) => void
   onDeclined?: () => void
+  /** API mode: check the approver with the backend (POST /approvals). Throw to show the error and keep the dialog open. */
+  verify?: (approverUsername: string, secret: string) => Promise<void>
 }
 
 type Req =
@@ -50,11 +52,15 @@ export function DialogHost() {
   const [req, setReq] = React.useState<Req>(null)
   const [reason, setReason] = React.useState("")
   const [pin, setPin] = React.useState("")
+  const [approver, setApprover] = React.useState("")
+  const [checking, setChecking] = React.useState(false)
   const [error, setError] = React.useState("")
   React.useEffect(() => {
     push = (r) => {
       setReason("")
       setPin("")
+      setApprover("")
+      setChecking(false)
       setError("")
       setReq(r)
     }
@@ -122,8 +128,20 @@ export function DialogHost() {
     if (o.amount) rows.push(["Amount", o.amount])
     if (o.limit) rows.push(["Your limit", o.limit])
     if (o.reason) rows.push(["Reason", o.reason])
-    const approve = (e: React.FormEvent) => {
+    const approve = async (e: React.FormEvent) => {
       e.preventDefault()
+      if (o.verify) {
+        if (!approver.trim() || !pin) return setError("Enter the approver's username and PIN or password")
+        setChecking(true)
+        try {
+          await o.verify(approver.trim(), pin)
+        } catch (err) {
+          setChecking(false)
+          return setError(err instanceof Error ? err.message : "Approval was not accepted")
+        }
+        close()
+        return o.onApproved(approver.trim())
+      }
       if (!/^\d{4,6}$/.test(pin))
         return setError("Enter the approver's 4–6 digit PIN")
       close()
@@ -151,8 +169,19 @@ export function DialogHost() {
               </DialogDescription>
             </DialogHeader>
             <KV items={rows} />
+            {o.verify && (
+              <FormRow label="Approver username" required htmlFor="approver-user">
+                <Input
+                  id="approver-user"
+                  autoFocus
+                  autoComplete="off"
+                  value={approver}
+                  onChange={(e) => setApprover(e.target.value)}
+                />
+              </FormRow>
+            )}
             <FormRow
-              label="Approver PIN"
+              label={o.verify ? "Approver PIN or password" : "Approver PIN"}
               required
               error={error}
               htmlFor="approver-pin"
@@ -160,8 +189,8 @@ export function DialogHost() {
               <Input
                 id="approver-pin"
                 type="password"
-                inputMode="numeric"
-                autoFocus
+                inputMode={o.verify ? undefined : "numeric"}
+                autoFocus={!o.verify}
                 autoComplete="off"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
@@ -169,18 +198,22 @@ export function DialogHost() {
               />
             </FormRow>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  close()
-                  toast.info("Approval request sent to managers")
-                  o.onDeclined?.()
-                }}
-              >
-                Send remote request
+              {!o.verify && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    close()
+                    toast.info("Approval request sent to managers")
+                    o.onDeclined?.()
+                  }}
+                >
+                  Send remote request
+                </Button>
+              )}
+              <Button type="submit" disabled={checking}>
+                {checking ? "Checking…" : "Approve"}
               </Button>
-              <Button type="submit">Approve</Button>
             </DialogFooter>
           </form>
         </DialogContent>

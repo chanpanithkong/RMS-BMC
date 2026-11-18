@@ -18,7 +18,12 @@ The backend allows the origins listed in its `FRONTEND_URL` setting (CORS with c
   ```
 * `lib/api/client.ts`: a small fetch wrapper: `api(method, path, { body, query, idempotent, ifMatch })`, `login`, `logout`, `connectRealtime`, `ApiError`.
 
-The screens still read the demo store in `lib/rms/`. Switch them one module at a time; nothing else changes until you do.
+Switched to the API so far:
+
+* **Sign-in and session** (`lib/api/session.ts`, `components/rms/auth-gate.tsx`, `components/login-form.tsx`): the login form calls `POST /auth/login`; staff pages restore the session from the refresh cookie on load and send signed-out users to `/login?next=…` (same-site paths only); `/auth/me` supplies the user, all their roles, permissions, branches and business date; sign-out calls `POST /auth/logout`; the header shows the real branch (switching sends `X-Branch-Id`) and business date. The sidebar and page gate use every role the user holds. The demo "Preview as role" switcher is gone.
+* **POS, kitchen and expo** (`lib/api/pos.ts`, `app/(fullscreen)/pos`, `app/(fullscreen)/kds`, `kds/expo`, `components/rms/pos-dialogs.tsx`): menu, tables and orders load from `/menu/pos`, `/tables`, `/dining-areas` and `/orders`; every action (create order, add, change or remove items, notes and seats, send, hold, resume, move table, discounts, cancel items, print bill, take payment, kitchen start, ready, bump, recall, rush, waste outcome, serve) calls the API and then reloads that order from the server. Totals shown are the server's (`totals`). The WebSocket topics keep other screens current, and everything reloads once a minute in case events were missed. When the backend answers `APPROVAL_REQUIRED`, the approval dialog asks for a manager's username and PIN or password, calls `POST /approvals`, and retries with the `approval_id`. Users without `orders.view` (cooks) get a kitchen screen built from `GET /kitchen/stations/{code}/open-tickets` alone; ticket items carry `void_type`, `waste_outcome`, `started_at` and `ready_at` for this. Not connected yet: split bills (the Split button is disabled), the customer list on the POS (still demo data), the cashier-session banner, and offline queueing.
+
+The other screens still read the demo store in `lib/rms/` (the session feeds it the real user, roles and branch). Switch them one module at a time.
 
 ## Authentication and tokens
 
@@ -146,8 +151,8 @@ Topics: `branch:<branchId>` (orders, payments, menu availability), `tables:<bran
 
 ## Suggested switch-over order
 
-1. Login, lock screen, `/auth/me` and the role-based sidebar.
-2. POS, orders, KDS and expo (highest value; uses WebSockets).
+1. Login, `/auth/me` and the role-based sidebar (done; PIN login on the lock screen still to do).
+2. POS, orders, KDS and expo (done, except split bills and offline queueing).
 3. Floor plan, payments, cashier sessions.
 4. Menu, inventory, settings, users, audit, dashboard and reports.
 5. Phase 2 screens: customers, reservations, recipes, purchasing, expenses, employees, promotions and the advanced reports. The backend for all of them is ready.

@@ -46,7 +46,8 @@ def open_tickets(station_code: str, ctx: KView):
                     "pickup_name": o.pickup_name, "server_user_id": o.server_user_id, "created_at": t.created_at, "age_seconds": row["age_seconds"],
                     "items": [{"order_item_id": i.id, "name_en": i.item_name_en_snapshot, "name_km": i.item_name_km_snapshot, "variant": i.variant_name_snapshot,
                                "quantity": i.quantity, "modifiers": [m.name_snapshot for m in i.modifiers], "note": i.note, "is_allergy": i.is_allergy,
-                               "status": i.item_status, "version": i.version} for i in items]})
+                               "status": i.item_status, "version": i.version, "void_type": i.void_type,
+                               "waste_outcome": i.waste_outcome, "started_at": i.started_at, "ready_at": i.ready_at} for i in items]})
     return out
 
 

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { RecordDialog } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
-import { confirmAction, requestApproval } from "@/components/rms/dialog-host"
+import { confirmAction } from "@/components/rms/dialog-host"
 import {
   FormRow,
   KV,
@@ -34,14 +34,15 @@ import {
   StatusBadge,
   useTab,
 } from "@/components/rms/kit"
+import * as cash from "@/lib/api/cash"
+import { report as showError } from "@/lib/api/pos"
+import { can, useSession } from "@/lib/api/session"
 import { khr, usd } from "@/lib/rms/billing"
-import { expectedCash, rms, useRms } from "@/lib/rms/store"
+import { useRms } from "@/lib/rms/store"
 import type { CashierSession } from "@/lib/rms/types"
 
 const usdDen = [100, 50, 20, 10, 5, 1]
 const khrDen = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 100]
-const TOLERANCE_USD = 1
-const TOLERANCE_KHR = 4100
 
 function CountColumn({
   title,
@@ -84,61 +85,52 @@ function CountColumn({
   )
 }
 
-function Report({
-  s,
-  onClose,
-  kind,
-}: {
-  s: CashierSession | null
-  onClose: () => void
-  kind: "X" | "Z"
-}) {
+const money = (cur: string, v: string | number) => (cur === "KHR" ? khr(Number(v)) : usd(Number(v)))
+
+/** X report while the session is open, Z report once closed, both calculated by the server (FR-STAFF-012). */
+function Report({ s, onClose }: { s: CashierSession | null; onClose: () => void }) {
+  const [data, setData] = React.useState<cash.SessionReport | null>(null)
+  React.useEffect(() => {
+    if (!s) return
+    let live = true
+    cash.sessionReport(s.id).then((r) => live && setData(r), showError)
+    return () => {
+      live = false
+      setData(null)
+    }
+  }, [s])
   if (!s) return null
-  const e = expectedCash(s)
+  const rows: [string, string][] = data
+    ? [
+        ["Opening float", Object.entries(data.floats).map(([c, v]) => money(c, v)).join(" · ")],
+        ...data.payments.map(
+          (p) => [`${p.method_currency.replace(":", " · ")} (${p.count})`, money(p.method_currency.split(":")[1], p.tendered)] as [string, string]
+        ),
+        ...data.refunds.map((r) => [`Refund ${r.refund_no}`, money(r.currency, r.amount)] as [string, string]),
+        ...data.movements.map((m) => [`${m.kind}: ${m.reason}`, money(m.currency, m.amount)] as [string, string]),
+        ...(data.kind === "X"
+          ? ([["Expected cash", data.expected ? Object.entries(data.expected).map(([c, v]) => money(c, v)).join(" · ") : "Hidden until the count"]] as [string, string][])
+          : (data.results ?? []).flatMap(
+              (r) =>
+                [
+                  [`Expected ${r.currency}`, money(r.currency, r.expected)],
+                  [`Counted ${r.currency}`, money(r.currency, r.counted)],
+                  [`Variance ${r.currency}`, money(r.currency, r.variance)],
+                ] as [string, string][]
+            )),
+      ]
+    : []
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            {kind} report · {s.id}
-          </DialogTitle>
+          <DialogTitle>{data?.kind ?? (s.status === "Open" ? "X" : "Z")} report</DialogTitle>
           <DialogDescription>
-            {s.cashier} · {s.terminal} · opened {s.opened}
+            {s.cashier} · opened {s.opened}
+            {s.closed && ` · closed ${s.closed}`}
           </DialogDescription>
         </DialogHeader>
-        <KV
-          className="tabular"
-          items={[
-            ["Opening float", `${usd(s.floatUSD)} · ${khr(s.floatKHR)}`],
-            ["Net cash retained", `${usd(s.salesUSD)} · ${khr(s.salesKHR)}`],
-            ["Cash refunds", usd(s.refundsUSD)],
-            [
-              "Paid-outs",
-              usd(
-                s.movements
-                  .filter((m) => m.kind === "Paid-out")
-                  .reduce((n, m) => n + m.amount, 0)
-              ),
-            ],
-            ["KHQR", usd(684.2)],
-            ["Card", usd(196)],
-            ["Discounts", usd(98.2)],
-            ["Voids", usd(14.5)],
-            ["Expected cash", `${usd(e.usd)} · ${khr(e.khr)}`],
-            ...(s.countedUSD !== undefined
-              ? ([
-                  [
-                    "Counted",
-                    `${usd(s.countedUSD)} · ${khr(s.countedKHR ?? 0)}`,
-                  ],
-                  [
-                    "Variance",
-                    `${usd(s.varianceUSD ?? 0)} · ${khr(s.varianceKHR ?? 0)}`,
-                  ],
-                ] as [string, string][])
-              : []),
-          ]}
-        />
+        {data ? <KV className="tabular" items={rows} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
         <Button
           onClick={() => {
             toast.success("Report sent to printer")
@@ -153,9 +145,33 @@ function Report({
 }
 
 export default function ShiftsPage() {
-  const { sessions, role } = useRms()
+  const { sessions } = useRms()
+  const { me } = useSession()
+  const myId = me?.id ?? ""
+  const viewAll = can(me, "cash.view")
+  const canApprove = can(me, "cash.approve")
+  const reload = React.useCallback(() => {
+    if (myId) void cash.loadSessions(myId, viewAll).catch(showError)
+  }, [myId, viewAll])
+  React.useEffect(reload, [reload])
+  const [busy, setBusy] = React.useState(false)
+  /** Run an API call, show the server's message on failure, and reload sessions after. */
+  const run = async (fn: () => Promise<unknown>, done?: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      if (done) toast.success(done)
+      return true
+    } catch (e) {
+      showError(e)
+      return false
+    } finally {
+      setBusy(false)
+      reload()
+    }
+  }
   const [tab, setTab] = useTab("session")
-  const session = sessions.find((s) => s.status === "Open")
+  const session = sessions.find((s) => s.status === "Open" && s.mine)
   const [cntU, setCntU] = React.useState<Record<number, string>>({})
   const [cntK, setCntK] = React.useState<Record<number, string>>({})
   const [closing, setClosing] = React.useState(false)
@@ -163,32 +179,26 @@ export default function ShiftsPage() {
   const [floatU, setFloatU] = React.useState("50")
   const [floatK, setFloatK] = React.useState("100000")
   const [move, setMove] = React.useState(false)
-  const [report, setReport] = React.useState<{
-    s: CashierSession
-    kind: "X" | "Z"
-  } | null>(null)
-  const canApprove = ["GM", "BRMGR", "OWNER", "ACCT"].includes(role)
+  const [report, setReport] = React.useState<CashierSession | null>(null)
   const countedU = usdDen.reduce((s, d) => s + d * Number(cntU[d] || 0), 0)
   const countedK = khrDen.reduce((s, d) => s + d * Number(cntK[d] || 0), 0)
 
+  const denominations = (dens: number[], values: Record<number, string>) =>
+    Object.fromEntries(dens.filter((d) => Number(values[d] || 0) > 0).map((d) => [String(d), Number(values[d])]))
   const submitCount = () => {
     if (!session) return
-    const e = expectedCash(session)
-    const vU = countedU - e.usd,
-      vK = countedK - e.khr
-    const out = Math.abs(vU) > TOLERANCE_USD || Math.abs(vK) > TOLERANCE_KHR
-    const patch = {
-      countedUSD: countedU,
-      countedKHR: countedK,
-      varianceUSD: vU,
-      varianceKHR: vK,
-      status: (out ? "Pending Approval" : "Closed") as CashierSession["status"],
-    }
-    rms.closeSession(session.id, patch)
-    setResult({ ...session, ...patch })
-    setClosing(false)
-    setCntU({})
-    setCntK({})
+    void run(async () => {
+      const closed = await cash.closeSession(
+        session.id,
+        { USD: countedU, KHR: countedK },
+        { USD: denominations(usdDen, cntU), KHR: denominations(khrDen, cntK) },
+        myId
+      )
+      setResult(closed)
+      setClosing(false)
+      setCntU({})
+      setCntK({})
+    })
   }
   return (
     <Page>
@@ -229,7 +239,7 @@ export default function ShiftsPage() {
                 <tr className="border-t">
                   <td className="p-1.5">USD</td>
                   <td className="p-1.5 text-right">
-                    {usd(expectedCash(result).usd)}
+                    {usd(result.countedUSD! - result.varianceUSD!)}
                   </td>
                   <td className="p-1.5 text-right">
                     {usd(result.countedUSD!)}
@@ -241,7 +251,7 @@ export default function ShiftsPage() {
                 <tr className="border-t">
                   <td className="p-1.5">KHR</td>
                   <td className="p-1.5 text-right">
-                    {khr(expectedCash(result).khr)}
+                    {khr(result.countedKHR! - result.varianceKHR!)}
                   </td>
                   <td className="p-1.5 text-right">
                     {khr(result.countedKHR!)}
@@ -256,7 +266,8 @@ export default function ShiftsPage() {
               {result.status === "Pending Approval" ? (
                 <Notice tone="danger">
                   Variance is beyond tolerance. A manager must approve it with a
-                  reason before the session closes.
+                  reason (Session history, signed in as themselves) before the
+                  session closes.
                 </Notice>
               ) : (
                 <Notice tone="success">
@@ -265,38 +276,9 @@ export default function ShiftsPage() {
               )}
             </div>
             <div className="mt-3 flex gap-2">
-              {result.status === "Pending Approval" && (
-                <Button
-                  onClick={() =>
-                    confirmAction({
-                      title: "Variance reason",
-                      effect: "This reason is stored with the session.",
-                      requireReason: true,
-                      confirmLabel: "Continue",
-                      onConfirm: () =>
-                        requestApproval({
-                          action: `Variance on ${result.id}`,
-                          amount: `${usd(result.varianceUSD!)} · ${khr(result.varianceKHR!)}`,
-                          limit: `${usd(TOLERANCE_USD)} tolerance`,
-                          onApproved: (by) => {
-                            rms.updateSession(result.id, {
-                              status: "Closed",
-                              approver: by,
-                            })
-                            setResult({ ...result, status: "Closed" })
-                            toast.success(`Approved by ${by}`)
-                          },
-                        }),
-                    })
-                  }
-                >
-                  <ShieldCheck />
-                  Request approval
-                </Button>
-              )}
               <Button
                 variant="outline"
-                onClick={() => setReport({ s: result, kind: "Z" })}
+                onClick={() => setReport(result)}
               >
                 <FileText />Z report
               </Button>
@@ -333,6 +315,7 @@ export default function ShiftsPage() {
               </Button>
               <Button
                 className="h-11"
+                disabled={busy}
                 onClick={() =>
                   confirmAction({
                     title: "Submit closing count?",
@@ -351,9 +334,9 @@ export default function ShiftsPage() {
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Stat
                 label="Session"
-                value={session.id}
+                value={session.cashier}
                 icon={Wallet}
-                hint={`${session.cashier} · ${session.terminal}`}
+                hint="Your session"
               />
               <Stat
                 label="Opened"
@@ -382,7 +365,7 @@ export default function ShiftsPage() {
               <Button
                 className="h-11"
                 variant="outline"
-                onClick={() => setReport({ s: session, kind: "X" })}
+                onClick={() => setReport(session)}
               >
                 <FileText />X report
               </Button>
@@ -415,13 +398,13 @@ export default function ShiftsPage() {
               </FormRow>
               <Button
                 className="h-11"
-                onClick={() => {
-                  rms.openSession({
-                    floatUSD: Number(floatU) || 0,
-                    floatKHR: Number(floatK) || 0,
-                  })
-                  toast.success("Session opened")
-                }}
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    () => cash.openSession({ USD: Number(floatU) || 0, KHR: Number(floatK) || 0 }),
+                    "Session opened"
+                  )
+                }
               >
                 <LogIn />
                 Open session
@@ -458,7 +441,7 @@ export default function ShiftsPage() {
                 m.currency === "USD" ? usd(m.amount) : khr(m.amount),
             },
             { key: "reason", header: "Reason" },
-            { key: "approvedBy", header: "Approved by" },
+            { key: "approvedBy", header: "Approved by", render: (m) => m.approvedBy ?? "—" },
           ]}
         />
       )}
@@ -474,9 +457,7 @@ export default function ShiftsPage() {
             },
           ]}
           columns={[
-            { key: "id", header: "Session" },
             { key: "cashier", header: "Cashier" },
-            { key: "terminal", header: "Terminal" },
             { key: "opened", header: "Opened" },
             { key: "closed", header: "Closed", render: (s) => s.closed ?? "—" },
             {
@@ -505,21 +486,19 @@ export default function ShiftsPage() {
             {
               label: s.status === "Open" ? "X report" : "Z report",
               icon: FileText,
-              onClick: () =>
-                setReport({ s, kind: s.status === "Open" ? "X" : "Z" }),
+              onClick: () => setReport(s),
             },
             {
               label: "Approve variance",
               icon: ShieldCheck,
-              hidden: () => s.status !== "Pending Approval" || !canApprove,
+              hidden: () => s.status !== "Pending Approval" || !canApprove || !!s.mine,
               onClick: () =>
-                requestApproval({
-                  action: `Variance on ${s.id}`,
-                  amount: usd(s.varianceUSD ?? 0),
-                  onApproved: (by) => {
-                    rms.updateSession(s.id, { status: "Closed", approver: by })
-                    toast.success("Variance approved")
-                  },
+                confirmAction({
+                  title: `Approve ${s.cashier}'s variance?`,
+                  effect: `USD ${usd(s.varianceUSD ?? 0)} · KHR ${khr(s.varianceKHR ?? 0)}. The reason is stored with the session.`,
+                  requireReason: true,
+                  confirmLabel: "Approve variance",
+                  onConfirm: (reason) => void run(() => cash.approveVariance(s.id, reason), "Variance approved"),
                 }),
             },
             {
@@ -529,14 +508,13 @@ export default function ShiftsPage() {
               hidden: () => s.status !== "Open" || !canApprove,
               onClick: () =>
                 confirmAction({
-                  title: `Force-close ${s.id}?`,
+                  title: `Force-close ${s.cashier}'s session?`,
                   effect:
                     "The session closes without a count and is flagged for a later count.",
                   requireReason: true,
                   destructive: true,
                   confirmLabel: "Force close",
-                  onConfirm: () =>
-                    rms.closeSession(s.id, { status: "Force Closed" }),
+                  onConfirm: (reason) => void run(() => cash.forceClose(s.id, reason), "Session force-closed"),
                 }),
             },
           ]}
@@ -546,7 +524,7 @@ export default function ShiftsPage() {
         open={move}
         onOpenChange={setMove}
         title="Cash movement"
-        description={`Linked to session ${session?.id ?? ""}.`}
+        description="Recorded in your open cashier session."
         fields={[
           {
             name: "kind",
@@ -574,21 +552,20 @@ export default function ShiftsPage() {
           { name: "reason", label: "Reason", required: true },
         ]}
         initial={{ currency: "USD" }}
-        onSubmit={(v) => {
-          rms.addMovement(session!.id, {
-            kind: v.kind as "Paid-out",
-            currency: v.currency as "USD",
-            amount: Number(v.amount),
-            reason: String(v.reason),
-          })
-          toast.success("Cash movement recorded")
-        }}
+        onSubmit={(v) =>
+          void run(
+            () =>
+              cash.addMovement(session!.id, {
+                kind: v.kind as "Paid-out",
+                currency: v.currency as "USD",
+                amount: Number(v.amount),
+                reason: String(v.reason),
+              }),
+            "Cash movement recorded"
+          )
+        }
       />
-      <Report
-        s={report?.s ?? null}
-        kind={report?.kind ?? "X"}
-        onClose={() => setReport(null)}
-      />
+      <Report s={report} onClose={() => setReport(null)} />
     </Page>
   )
 }

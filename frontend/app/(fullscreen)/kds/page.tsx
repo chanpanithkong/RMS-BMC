@@ -14,9 +14,9 @@ import {
 import { toast } from "sonner"
 import { confirmAction } from "@/components/rms/dialog-host"
 import { LinkButton } from "@/components/rms/kit"
+import * as pos from "@/lib/api/pos"
 import {
   mmss,
-  rms,
   ticketsFor,
   useClock,
   useRms,
@@ -36,22 +36,27 @@ const stations: (Station | "All")[] = [
   "Bar",
 ]
 
+const STATION_CODES = ["HOT", "COLD", "BEV", "DESSERT", "BAR"]
+
 function TicketCard({ t }: { t: Ticket }) {
   const crit = t.age >= CRIT,
     warn = t.age >= WARN
   const modified = t.lines.some((l) => l.modified || l.status === "Cancelled")
   const tap = (l: OrderLine) => {
     if (l.status === "Sent")
-      rms.setLineStatus(t.order.id, l.id, "In Preparation")
+      pos.setLineStatus(t.order.id, l.id, "In Preparation").catch(pos.report)
     else if (l.status === "In Preparation")
-      rms.setLineStatus(t.order.id, l.id, "Ready")
+      pos.setLineStatus(t.order.id, l.id, "Ready").catch(pos.report)
     else if (l.status === "Cancelled" && l.voidType === "After preparation")
       confirmAction({
         title: `${l.name} was prepared`,
         effect:
           "Record what happens to this prepared item. Waste will reduce stock.",
         reasons: ["Wastage", "Reusable"],
-        onConfirm: (r) => toast.success(`Marked as ${r.toLowerCase()}`),
+        onConfirm: (r) =>
+          pos
+            .wasteOutcome(t.order.id, l.id, r as "Wastage" | "Reusable")
+            .then(() => toast.success(`Marked as ${r.toLowerCase()}`), pos.report),
       })
   }
   return (
@@ -152,7 +157,7 @@ function TicketCard({ t }: { t: Ticket }) {
         <button
           aria-label={t.rush ? "Remove rush" : "Mark rush"}
           aria-pressed={t.rush}
-          onClick={() => rms.toggleRush(t.order.id, t.station)}
+          onClick={() => pos.toggleRush(t.order.id, t.station, !t.rush).catch(pos.report)}
           className={cn(
             "touch-target rounded-lg px-2 text-sm font-semibold",
             t.rush ? "bg-orange-500 text-zinc-950" : "bg-zinc-800"
@@ -162,13 +167,13 @@ function TicketCard({ t }: { t: Ticket }) {
         </button>
         <button
           className="touch-target rounded-lg bg-zinc-700 font-semibold hover:bg-zinc-600"
-          onClick={() => rms.startTicket(t.order.id, t.station)}
+          onClick={() => pos.startTicket(t.order, t.station).catch(pos.report)}
         >
           Start
         </button>
         <button
           className="touch-target rounded-lg bg-emerald-500 font-bold text-zinc-950 hover:bg-emerald-400"
-          onClick={() => rms.bump(t.order.id, t.station)}
+          onClick={() => pos.bump(t.order.id, t.station).catch(pos.report)}
         >
           Bump
         </button>
@@ -178,7 +183,9 @@ function TicketCard({ t }: { t: Ticket }) {
 }
 
 export default function KdsPage() {
-  const { orders, recalled } = useRms()
+  const { orders } = useRms()
+  // Every station's open tickets are loaded; the station tabs filter on this screen.
+  pos.useLiveSync(STATION_CODES)
   const at = useClock()
   const [station, setStation] = React.useState<Station | "All">("All")
   const [connected, setConnected] = React.useState(true)
@@ -240,11 +247,12 @@ export default function KdsPage() {
             History
           </LinkButton>
           <button
-            disabled={!recalled.length}
-            onClick={() => {
-              const r = rms.recall()
-              if (r) toast.success("Last ticket recalled")
-            }}
+            onClick={() =>
+              pos.recall().then(
+                (r) => (r ? toast.success("Last ticket recalled") : toast.info("Nothing bumped on this screen yet")),
+                pos.report
+              )
+            }
             className="touch-target flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 font-semibold disabled:opacity-40"
           >
             <Undo2 className="size-4" />

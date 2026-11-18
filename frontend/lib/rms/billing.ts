@@ -39,8 +39,10 @@ export interface BillTotals {
 }
 
 export function calcBill(
-  order: Pick<Order, "lines" | "discount" | "type" | "payments" | "delivery">
+  order: Pick<Order, "lines" | "discount" | "type" | "payments" | "delivery"> & { apiTotals?: Order["apiTotals"] }
 ): BillTotals {
+  // Orders loaded from the API carry the backend's own totals; those always win.
+  if (order.apiTotals) return order.apiTotals
   const lines = order.lines.filter((l) => l.status !== "Cancelled")
   const gross = round2(lines.reduce((s, l) => s + lineGross(l), 0))
   const itemDiscounts = round2(

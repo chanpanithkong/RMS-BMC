@@ -232,6 +232,10 @@ class TicketItemOut(BaseModel):
     is_allergy: bool
     status: str
     version: int
+    void_type: str | None = None
+    waste_outcome: str | None = None
+    started_at: datetime | None = None
+    ready_at: datetime | None = None
 
 
 class TicketOut(BaseModel):

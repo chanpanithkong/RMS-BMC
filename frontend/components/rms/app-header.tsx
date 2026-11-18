@@ -41,11 +41,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { SimpleSelect, opts } from "@/components/rms/kit"
+import { SimpleSelect } from "@/components/rms/kit"
 import { navForPath, roleLabels } from "@/lib/rms/nav"
-import { BUSINESS_DATE } from "@/lib/rms/seed"
+import { signOut, switchBranch, useSession } from "@/lib/api/session"
 import { initials, rms, useRms } from "@/lib/rms/store"
-import type { Role } from "@/lib/rms/types"
 import { cn } from "@/lib/utils"
 
 export function NotificationBell() {
@@ -112,7 +111,10 @@ export function NotificationBell() {
 
 export function UserMenu() {
   const { role, userName, lang } = useRms()
+  const { me } = useSession()
+  const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
+  const branches = me?.branches ?? []
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -160,28 +162,36 @@ export function UserMenu() {
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <UserCog />
-            Preview as role
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 w-52 overflow-y-auto">
-            <DropdownMenuGroup>
-              <DropdownMenuRadioGroup
-                value={role}
-                onValueChange={(v) => rms.setRole(v as Role)}
-              >
-                {(Object.keys(roleLabels) as Role[]).map((r) => (
-                  <DropdownMenuRadioItem key={r} value={r}>
-                    {roleLabels[r]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        {branches.length > 1 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <UserCog />
+              Switch branch
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-80 w-52 overflow-y-auto">
+              <DropdownMenuGroup>
+                <DropdownMenuRadioGroup
+                  value={me?.current_branch.id}
+                  onValueChange={(v) => void switchBranch(String(v))}
+                >
+                  {branches.map((b) => (
+                    <DropdownMenuRadioItem key={b.id} value={b.id}>
+                      {b.name_en}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" render={<Link href="/login" />}>
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={async () => {
+            await signOut()
+            router.replace("/login")
+          }}
+        >
           <LogOut />
           Sign out
         </DropdownMenuItem>
@@ -191,7 +201,8 @@ export function UserMenu() {
 }
 
 export function AppHeader() {
-  const { branch, lang, sessions, userName } = useRms()
+  const { lang, sessions, userName } = useRms()
+  const { me } = useSession()
   const path = usePathname()
   const router = useRouter()
   const [q, setQ] = React.useState("")
@@ -249,19 +260,25 @@ export function AppHeader() {
         />
       </form>
       <div className="ml-auto flex items-center gap-1 lg:ml-1">
-        <SimpleSelect
-          aria-label="Branch"
-          className="hidden w-32 sm:flex"
-          value={branch}
-          onChange={rms.setBranch}
-          options={opts("Riverside", "BKK1", "Siem Reap")}
-        />
+        {me && me.branches.length > 1 ? (
+          <SimpleSelect
+            aria-label="Branch"
+            className="hidden w-32 sm:flex"
+            value={me.current_branch.id}
+            onChange={(v) => void switchBranch(v)}
+            options={me.branches.map((b) => ({ value: b.id, label: b.name_en }))}
+          />
+        ) : (
+          <span className="hidden px-2 text-xs text-muted-foreground sm:block">
+            {me?.current_branch.name_en}
+          </span>
+        )}
         <span
           className="tabular hidden items-center gap-1 px-2 text-xs text-muted-foreground xl:flex"
           title="Business date"
         >
           <CalendarDays className="size-3.5" />
-          {BUSINESS_DATE}
+          {me?.business_date}
         </span>
         <Link
           href="/shifts"

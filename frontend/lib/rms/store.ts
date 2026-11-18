@@ -19,11 +19,13 @@ import type {
   BillSplit,
   CashMovement,
   CashierSession,
+  Category,
   DeliveryStatus,
   Discount,
   FloorTable,
   ItemStatus,
   MenuItem,
+  ModifierGroup,
   Notice,
   Order,
   OrderLine,
@@ -39,6 +41,8 @@ import type {
 
 export interface RmsState {
   role: Role
+  /** Every role the signed-in user holds (navigation shows what any of them allows). */
+  roles: Role[]
   userName: string
   lang: "en" | "km"
   branch: string
@@ -58,6 +62,7 @@ export interface RmsState {
 
 const initial: RmsState = {
   role: "GM",
+  roles: ["GM"],
   userName: "Dara Pich",
   lang: "en",
   branch: "Riverside",
@@ -188,8 +193,8 @@ function settle(id: string) {
 
 export const rms = {
   setRole: (role: Role) => set({ role }),
-  setUser: (userName: string, role?: Role) =>
-    set({ userName, ...(role ? { role } : {}) }),
+  setUser: (userName: string, role?: Role, roles?: Role[]) =>
+    set({ userName, ...(role ? { role, roles: roles?.length ? roles : [role] } : {}) }),
   setLang: (lang: "en" | "km") => set({ lang }),
   setBranch: (branch: string) => set({ branch }),
   toggleOnline: () => set((s) => ({ online: !s.online })),
@@ -677,6 +682,37 @@ export const rms = {
     set((s) => ({
       sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...patch } : x)),
     })),
+
+  // ---- API sync (lib/api/pos.ts): the backend is the source of truth for menu, tables and orders.
+  /** Replace categories, modifier groups and menu items. The exported arrays are refilled in place so every import sees them. */
+  loadCatalog(cats: Category[], groups: ModifierGroup[], menu: MenuItem[]) {
+    seedCategories.splice(0, seedCategories.length, ...cats)
+    modifierGroups.splice(0, modifierGroups.length, ...groups)
+    set({ menu })
+  },
+  loadTables: (tables: FloorTable[]) => set({ tables }),
+  loadSessions: (sessions: CashierSession[]) => set({ sessions }),
+  loadOrders: (orders: Order[]) =>
+    set((s) => ({
+      orders: orders.map((o) => {
+        const old = s.orders.find((x) => x.id === o.id)
+        return old ? { ...o, payments: o.payments.length ? o.payments : old.payments, rush: o.rush ?? old.rush, splits: o.splits ?? old.splits, receiptNo: o.receiptNo ?? old.receiptNo, billPrinted: o.billPrinted ?? old.billPrinted } : o
+      }),
+    })),
+  upsertOrder: (o: Order) =>
+    set((s) => {
+      const old = s.orders.find((x) => x.id === o.id)
+      const merged = old ? { ...o, payments: o.payments.length ? o.payments : old.payments, rush: o.rush ?? old.rush, splits: o.splits ?? old.splits, receiptNo: o.receiptNo ?? old.receiptNo, billPrinted: o.billPrinted ?? old.billPrinted } : o
+      return { orders: old ? s.orders.map((x) => (x.id === o.id ? merged : x)) : [merged, ...s.orders] }
+    }),
+  /** Set or clear the rush flag of one station on an order (from the ticket priority). */
+  markRush: (id: string, station: Station, on: boolean) =>
+    patchOrder(id, (o) => {
+      const rush = (o.rush ?? []).filter((r) => r !== station)
+      return { ...o, rush: on ? [...rush, station] : rush }
+    }),
+  addLocalPayment: (orderId: string, p: Payment) =>
+    patchOrder(orderId, (o) => ({ ...o, payments: [...o.payments.filter((x) => x.id !== p.id), p] })),
 }
 
 export { modifierGroups, seedCategories as categories }

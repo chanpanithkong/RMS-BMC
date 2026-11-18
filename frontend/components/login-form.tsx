@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -19,29 +19,30 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-
-const MAX_ATTEMPTS = 5
+import { safeNext, signIn, signInMessage } from "@/lib/api/session"
 
 export function LoginForm() {
   const router = useRouter()
+  const next = safeNext(useSearchParams().get("next"))
   const [username, setUsername] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState("")
-  const [attempts, setAttempts] = React.useState(0)
   const [busy, setBusy] = React.useState(false)
-  const locked = attempts >= MAX_ATTEMPTS
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (locked) return
-    if (!username.trim() || !password) {
-      setAttempts((a) => a + 1)
-      return setError("Enter your username and password.")
-    }
+    if (!username.trim() || !password) return setError("Enter your username and password.")
     setError("")
     setBusy(true)
-    // Demo only: real sign-in must call the authentication API.
-    setTimeout(() => router.push("/"), 300)
+    try {
+      // The backend counts failed attempts and locks the account (5 in 15 minutes).
+      const me = await signIn(username.trim(), password)
+      router.replace(me.must_change_password ? "/change-password" : next)
+    } catch (err) {
+      setError(signInMessage(err))
+      setPassword("")
+      setBusy(false)
+    }
   }
 
   return (
@@ -81,16 +82,10 @@ export function LoginForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
-              {error && <FieldError>{error}</FieldError>}
+              {error && <FieldError role="alert">{error}</FieldError>}
             </Field>
-            {locked && (
-              <p role="alert" className="text-sm text-danger">
-                Account locked after {MAX_ATTEMPTS} failed attempts. Ask an
-                administrator to unlock it.
-              </p>
-            )}
             <Field>
-              <Button type="submit" disabled={busy || locked} className="h-10">
+              <Button type="submit" disabled={busy} className="h-10">
                 {busy ? "Signing in…" : "Sign in"}
               </Button>
               <Link

@@ -7500,6 +7500,14 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+            /** Void Type */
+            void_type?: string | null;
+            /** Waste Outcome */
+            waste_outcome?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Ready At */
+            ready_at?: string | null;
         };
         /** TicketOut */
         TicketOut: {

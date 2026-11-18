@@ -45,12 +45,23 @@ interface Options {
 
 export const newIdempotencyKey = () => crypto.randomUUID()
 
+let refreshing: Promise<boolean> | null = null
+
+/** Exchange the HttpOnly refresh cookie for a new access token. Concurrent callers share one request (the backend rotates refresh tokens). */
 async function refresh(): Promise<boolean> {
-  const r = await fetch(`${API_URL}/api/v1/auth/refresh`, { method: "POST", credentials: "include" })
-  if (!r.ok) return false
-  accessToken = (await r.json()).access_token
-  return true
+  refreshing ??= (async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/v1/auth/refresh`, { method: "POST", credentials: "include" })
+      if (!r.ok) return false
+      accessToken = (await r.json()).access_token
+      return true
+    } finally {
+      setTimeout(() => (refreshing = null), 0)
+    }
+  })()
+  return refreshing
 }
+export const refreshSession = refresh
 
 export async function api<T = unknown>(method: Method, path: keyof paths | string, opts: Options = {}, retried = false): Promise<T> {
   const url = new URL(`${API_URL}/api/v1${path}`)

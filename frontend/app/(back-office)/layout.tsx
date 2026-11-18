@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
+import { AuthGate } from "@/components/rms/auth-gate"
 import { AppHeader } from "@/components/rms/app-header"
 import { RoleGate } from "@/components/rms/role-gate"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,6 +12,7 @@ export default function BackOfficeLayout({
   children: React.ReactNode
 }) {
   return (
+    <AuthGate>
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset className="min-w-0">
@@ -27,5 +29,6 @@ export default function BackOfficeLayout({
         </Suspense>
       </SidebarInset>
     </SidebarProvider>
+    </AuthGate>
   )
 }

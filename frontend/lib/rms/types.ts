@@ -85,9 +85,13 @@ export interface MenuItem {
   desc: string
   sku?: string
   channels: string[]
+  /** API: variant name -> variant id ("Regular" for items without sizes). */
+  variantIds?: Record<string, string>
 }
 
 export interface LineModifier {
+  /** Modifier id (sent to the API). */
+  id?: string
   name: string
   delta: number
 }
@@ -114,6 +118,10 @@ export interface OrderLine {
   discount?: Discount
   voidType?: VoidType
   voidReason?: string
+  /** API: id of the active item discount, so it can be removed. */
+  discountId?: string
+  /** API: optimistic-lock version for kitchen status changes. */
+  version?: number
   sentAt?: number
   startedAt?: number
   readyAt?: number
@@ -137,6 +145,9 @@ export interface Payment {
 export interface BillSplit {
   label: string
   total: number
+  /** API: the bill this split is paid against, and what is still owed on it. */
+  billId?: string
+  balance?: number
 }
 export interface TimelineEvent {
   at: number
@@ -181,6 +192,23 @@ export interface Order {
   business: string
   receiptNo?: string
   onlineState?: "Received" | "Accepted" | "Rejected"
+  /** API: totals calculated by the backend (authoritative, SRS C-02). */
+  apiTotals?: {
+    gross: number
+    itemDiscounts: number
+    orderDiscount: number
+    subtotal: number
+    service: number
+    tax: number
+    deliveryFee: number
+    total: number
+    paid: number
+    balance: number
+  }
+  /** API: id of the active order-level discount. */
+  discountId?: string
+  /** API: table id, for transfers. */
+  tableId?: string
 }
 export interface FloorTable {
   id: string
@@ -260,5 +288,8 @@ export interface CashierSession {
   varianceKHR?: number
   movements: CashMovement[]
   approver?: string
+  /** API: this is the signed-in user's own session. */
+  mine?: boolean
+  varianceReason?: string
 }
 export type Row = Record<string, unknown> & { id: string }

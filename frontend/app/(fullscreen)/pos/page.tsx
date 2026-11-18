@@ -36,7 +36,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { confirmAction, requestApproval } from "@/components/rms/dialog-host"
+import { confirmAction } from "@/components/rms/dialog-host"
+import * as pos from "@/lib/api/pos"
 import {
   FormRow,
   LinkButton,
@@ -146,7 +147,7 @@ function PosScreen() {
   )
   const [guests, setGuests] = React.useState(Number(params.get("guests") ?? 2))
   const [pickup, setPickup] = React.useState("")
-  const [cat, setCat] = React.useState("rice")
+  const [cat, setCat] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [dialog, setDialog] = React.useState<
     | null
@@ -167,12 +168,15 @@ function PosScreen() {
   const [holdLabel, setHoldLabel] = React.useState("")
   const [payFirst, setPayFirst] = React.useState(false)
 
+  pos.useLiveSync()
+  // Categories come from the API; until one is picked, show the first.
+  const activeCat = categories.some((c) => c.id === cat) ? cat : (categories[0]?.id ?? "")
   const order = orders.find((o) => o.id === orderId)
   const canPay = ["GM", "BRMGR", "SUPV", "CASHIER", "BAR"].includes(role)
   const lines = order?.lines ?? []
   const pending = lines.filter((l) => l.status === "Pending")
   const totals = order ? calcBill(order) : null
-  const session = sessions.find((s) => s.status === "Open")
+  const session = sessions.find((s) => s.status === "Open" && s.mine)
   const held = orders.filter((o) => o.held)
   const open = orders.filter((o) => o.status === "Open" && !o.held)
 
@@ -183,7 +187,7 @@ function PosScreen() {
         ? `${m.name} ${m.km} ${m.code} ${m.sku ?? ""}`
             .toLowerCase()
             .includes(search.trim().toLowerCase())
-        : m.cat === cat)
+        : m.cat === activeCat)
   )
   const editing = lines.find((l) => l.id === editLine)
 
@@ -193,46 +197,42 @@ function PosScreen() {
     setPickup("")
     setGuests(2)
   }
-  const ensureOrder = () =>
-    orderId ??
-    (() => {
-      const id = rms.createOrder(type, {
-        table: type === "DINE_IN" ? tableCode : undefined,
+  /** Run an API action; errors are shown as toasts (the server's message). */
+  const act = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    setBusy(true)
+    try {
+      return await fn()
+    } catch (e) {
+      pos.report(e)
+      return undefined
+    } finally {
+      setBusy(false)
+    }
+  }
+  const creating = React.useRef<Promise<string> | null>(null)
+  const ensureOrder = async (): Promise<string> => {
+    if (orderId) return orderId
+    creating.current ??= (async () => {
+      const table = tables.find((t) => t.code === tableCode)
+      const o = await pos.createOrder(type, {
+        tableId: table?.id,
+        tableTag: table ? undefined : tableCode,
         guests,
-        pickup: type !== "DINE_IN" ? pickup || "Walk-in" : undefined,
-        delivery:
-          type === "DELIVERY"
-            ? {
-                phone: "",
-                address: "",
-                zone: "Zone A",
-                fee: 1,
-                status: "Pending Assignment",
-              }
-            : undefined,
+        pickup,
       })
-      setOrderId(id)
-      return id
-    })()
+      setOrderId(o.id)
+      return o.id
+    })().finally(() => (creating.current = null))
+    return creating.current
+  }
 
+  const addItem = (
+    m: MenuItem,
+    pick: { variant?: string; modifiers: OrderLine["modifiers"]; qty: number; note?: string }
+  ) => act(async () => pos.addLine(await ensureOrder(), m, pick))
   const add = (m: MenuItem) => {
     if (m.variants || m.groups.length) return setModItem(m)
-    rms.addLine(ensureOrder(), {
-      itemId: m.id,
-      name: m.name,
-      km: m.km,
-      modifiers: [],
-      unitPrice: m.price,
-      qty: 1,
-      station: m.station,
-    })
-  }
-  const withBusy = (fn: () => void) => {
-    setBusy(true)
-    setTimeout(() => {
-      fn()
-      setBusy(false)
-    }, 250)
+    void addItem(m, { modifiers: [], qty: 1 })
   }
 
   const send = () => {
@@ -245,8 +245,8 @@ function PosScreen() {
       setDialog("pay")
       return toast.info("Pay-first mode: take payment before sending")
     }
-    withBusy(() => {
-      const n = rms.send(order.id)
+    void act(async () => {
+      const n = await pos.send(order.id)
       toast.success(`${n} item(s) sent to kitchen`)
     })
   }
@@ -260,25 +260,12 @@ function PosScreen() {
       reasons: voidReasons,
       destructive: true,
       confirmLabel: "Cancel item",
-      onConfirm: (reason) => {
-        const run = () => {
-          rms.voidLine(
-            order!.id,
-            l.id,
-            reason,
-            prepared ? "After preparation" : "Before preparation"
-          )
+      onConfirm: (reason) =>
+        // The backend decides whether a manager must approve (BR-012) and asks for it.
+        void act(async () => {
+          await pos.voidLine(order!.id, l, reason)
           toast.success("Item cancelled; kitchen notified")
-        }
-        if (prepared || l.status === "Sent")
-          requestApproval({
-            action: `Void ${l.qty} × ${l.name}`,
-            amount: usd(lineGross(l)),
-            reason,
-            onApproved: run,
-          })
-        else run()
-      },
+        }),
     })
   }
 
@@ -336,7 +323,7 @@ function PosScreen() {
                 value={guests}
                 onChange={(n) => {
                   setGuests(n)
-                  if (order) rms.updateOrder(order.id, { guests: n })
+                  if (order) void act(() => pos.updateOrder(order.id, { guests: n }))
                 }}
                 min={1}
                 size="lg"
@@ -351,9 +338,10 @@ function PosScreen() {
             className="h-11 w-40"
             placeholder={type === "TAKEAWAY" ? "Pickup name" : "Customer phone"}
             value={pickup}
-            onChange={(e) => {
-              setPickup(e.target.value)
-              if (order) rms.updateOrder(order.id, { pickup: e.target.value })
+            onChange={(e) => setPickup(e.target.value)}
+            onBlur={() => {
+              if (order && pickup !== (order.pickup ?? ""))
+                void act(() => pos.updateOrder(order.id, { pickup }))
             }}
           />
         )}
@@ -428,14 +416,14 @@ function PosScreen() {
             {categories.map((c) => (
               <button
                 key={c.id}
-                aria-current={cat === c.id && !search ? "true" : undefined}
+                aria-current={activeCat === c.id && !search ? "true" : undefined}
                 onClick={() => {
                   setCat(c.id)
                   setSearch("")
                 }}
                 className={cn(
                   "touch-target shrink-0 rounded-lg px-3 py-2 text-left text-sm leading-tight font-medium",
-                  cat === c.id && !search
+                  activeCat === c.id && !search
                     ? "bg-primary text-primary-foreground"
                     : "hover:bg-muted"
                 )}
@@ -444,7 +432,7 @@ function PosScreen() {
                 <span
                   className={cn(
                     "block text-xs font-normal",
-                    cat === c.id && !search
+                    activeCat === c.id && !search
                       ? "text-primary-foreground/80"
                       : "text-muted-foreground"
                   )}
@@ -577,7 +565,7 @@ function PosScreen() {
                   {l.status === "Pending" ? (
                     <QuantityStepper
                       value={l.qty}
-                      onChange={(q) => rms.setQty(order!.id, l.id, q)}
+                      onChange={(q) => void act(() => pos.setQty(order!.id, l, q))}
                       label={l.name}
                     />
                   ) : (
@@ -681,10 +669,12 @@ function PosScreen() {
               variant="outline"
               className="h-11"
               disabled={!order || !lines.length}
-              onClick={() => {
-                rms.printBill(order!.id)
-                toast.success("Bill printed")
-              }}
+              onClick={() =>
+                void act(async () => {
+                  await pos.printBill(order!.id)
+                  toast.success("Bill printed")
+                })
+              }
             >
               <ReceiptText />
               Bill
@@ -724,19 +714,9 @@ function PosScreen() {
         item={modItem}
         onClose={() => setModItem(null)}
         onConfirm={(c) => {
-          rms.addLine(ensureOrder(), {
-            itemId: modItem!.id,
-            name: modItem!.name,
-            km: modItem!.km,
-            variant: c.variant,
-            modifiers: c.modifiers,
-            unitPrice: c.price,
-            qty: c.qty,
-            station: modItem!.station,
-            note: c.note,
-            allergy: c.allergy,
-          })
+          const m = modItem!
           setModItem(null)
+          void addItem(m, { variant: c.variant, modifiers: c.modifiers, qty: c.qty, note: c.note })
         }}
       />
       {order && (
@@ -747,10 +727,10 @@ function PosScreen() {
           onPaid={() => {
             const fresh = calcBill(order)
             if (payFirst && pending.length && fresh.total)
-              setTimeout(() => {
-                const n = rms.send(order.id)
+              void act(async () => {
+                const n = await pos.send(order.id)
                 if (n) toast.success(`${n} item(s) sent to kitchen`)
-              }, 350)
+              })
           }}
         />
       )}
@@ -768,8 +748,8 @@ function PosScreen() {
           base={totals.gross - totals.itemDiscounts}
           title={`order ${order.no}`}
           current={order.discount}
-          onApply={(d) => rms.setDiscount(order.id, d)}
-          onRemove={() => rms.setDiscount(order.id)}
+          onApply={(d) => void act(() => pos.setDiscount(order.id, order, d))}
+          onRemove={() => void act(() => pos.setDiscount(order.id, order, undefined))}
         />
       )}
       {order && itemDiscount && (
@@ -780,10 +760,10 @@ function PosScreen() {
           title={itemDiscount.name}
           current={itemDiscount.discount}
           onApply={(d) =>
-            rms.setLine(order.id, itemDiscount.id, { discount: d })
+            void act(() => pos.setDiscount(order.id, itemDiscount, d, itemDiscount.id))
           }
           onRemove={() =>
-            rms.setLine(order.id, itemDiscount.id, { discount: undefined })
+            void act(() => pos.setDiscount(order.id, itemDiscount, undefined, itemDiscount.id))
           }
         />
       )}
@@ -808,13 +788,12 @@ function PosScreen() {
                   <FormRow label="Kitchen note" htmlFor="l-note">
                     <Input
                       id="l-note"
-                      value={editing.note ?? ""}
-                      onChange={(e) =>
-                        rms.setLine(order!.id, editing.id, {
-                          note: e.target.value,
-                          allergy: /allerg/i.test(e.target.value),
-                        })
-                      }
+                      key={editing.id}
+                      defaultValue={editing.note ?? ""}
+                      onBlur={(e) => {
+                        if (e.target.value !== (editing.note ?? ""))
+                          void act(() => pos.setLine(order!.id, editing.id, { note: e.target.value }))
+                      }}
                     />
                   </FormRow>
                   <FormRow label="Seat">
@@ -823,7 +802,7 @@ function PosScreen() {
                       min={1}
                       label="seat"
                       onChange={(s) =>
-                        rms.setLine(order!.id, editing.id, { seat: s })
+                        void act(() => pos.setLine(order!.id, editing.id, { seat: s }))
                       }
                     />
                   </FormRow>
@@ -845,7 +824,7 @@ function PosScreen() {
                     <Button
                       variant="destructive"
                       onClick={() => {
-                        rms.setQty(order!.id, editing.id, 0)
+                        void act(() => pos.setQty(order!.id, editing, 0))
                         setDialog(null)
                       }}
                     >
@@ -903,9 +882,12 @@ function PosScreen() {
                   key={t.id}
                   onClick={() => {
                     if (dialog === "transfer") {
-                      rms.transferTable(order!.table!, t.code)
-                      toast.success(`Moved to ${t.code}`)
-                      return setDialog(null)
+                      setDialog(null)
+                      return void act(async () => {
+                        await pos.transfer(order!.id, t.id)
+                        setTableCode(t.code)
+                        toast.success(`Moved to ${t.code}`)
+                      })
                     }
                     if (t.orderId && t.state !== "Available") {
                       const o = orders.find((x) => x.id === t.orderId)
@@ -917,12 +899,9 @@ function PosScreen() {
                         return setDialog(null)
                       }
                     }
-                    if (t.state === "Available" || t.state === "Reserved")
-                      rms.seat(t.code, guests, userName.split(" ")[0])
+                    // The table is seated when the order is created on it (or moved to it).
                     setTableCode(t.code)
-                    if (order) {
-                      rms.updateOrder(order.id, { table: t.code })
-                    }
+                    if (order) void act(() => pos.transfer(order.id, t.id))
                     setDialog(null)
                   }}
                   className="touch-target rounded-lg border p-2 text-left hover:border-primary"
@@ -983,7 +962,7 @@ function PosScreen() {
                     key={o.id}
                     className="touch-target flex items-center justify-between rounded-lg border p-3 text-left hover:border-primary"
                     onClick={() => {
-                      if (o.held) rms.resume(o.id)
+                      if (o.held) void act(() => pos.resume(o.id))
                       setOrderId(o.id)
                       setType(o.type)
                       setTableCode(o.table)
@@ -1038,12 +1017,14 @@ function PosScreen() {
           </FormRow>
           <DialogFooter>
             <Button
-              onClick={() => {
-                rms.hold(order!.id, holdLabel || "Held order")
-                reset()
-                setDialog(null)
-                toast.success("Order held")
-              }}
+              onClick={() =>
+                void act(async () => {
+                  await pos.hold(order!.id, holdLabel || "Held order")
+                  reset()
+                  setDialog(null)
+                  toast.success("Order held")
+                })
+              }
             >
               Hold
             </Button>
@@ -1069,7 +1050,7 @@ function PosScreen() {
                 <button
                   className="flex w-full items-center justify-between p-2.5 text-left text-sm hover:bg-muted"
                   onClick={() => {
-                    rms.updateOrder(ensureOrder(), { customer: c.name })
+                    void act(async () => pos.updateOrder(await ensureOrder(), { customer: c.name }))
                     if (c.allergy) toast.warning(`${c.name}: ${c.allergy}`)
                     setDialog(null)
                   }}
