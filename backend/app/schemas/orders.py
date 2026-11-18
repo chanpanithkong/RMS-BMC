@@ -14,10 +14,16 @@ class ModifierPick(Strict):
     modifier_id: uuid.UUID
 
 
+class ComboPick(Strict):
+    slot_id: uuid.UUID
+    variant_id: uuid.UUID
+
+
 class ItemIn(Strict):
     variant_id: uuid.UUID
     quantity: Decimal = Field(gt=0, le=999, decimal_places=3)
     modifiers: list[ModifierPick] = []
+    combo: list[ComboPick] = Field([], max_length=20, description="For combo items: the item chosen for each slot")
     seat_no: int | None = Field(None, ge=1, le=50)
     note: str | None = Field(None, max_length=300)
 
@@ -121,6 +127,8 @@ class OrderItemOut(ORM):
     line_net: Decimal
     version: int
     modifiers: list[ItemModifierOut]
+    parent_item_id: uuid.UUID | None = Field(None, description="Set on the items inside a combo; the combo line itself has price 0")
+    combo_slot_name: str | None = None
 
 
 class DiscountOut(ORM):

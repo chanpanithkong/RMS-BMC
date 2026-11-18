@@ -15,10 +15,11 @@ class EmailSender:
         self.password = os.environ.get("SMTP_PASSWORD", "")
         self.sender = os.environ.get("SMTP_FROM", "noreply@example.com")
 
-    def send(self, to: str, subject: str, body: str) -> None:
+    def send(self, to: str, subject: str, body: str) -> str:
+        """Returns "Sent", or "Logged" when SMTP isn't configured (development); raises on a delivery error."""
         if not self.host:
             log.info("email (not sent, SMTP_HOST unset) to=%s subject=%s", to, subject)
-            return
+            return "Logged"
         msg = EmailMessage()
         msg["From"], msg["To"], msg["Subject"] = self.sender, to, subject
         msg.set_content(body)
@@ -27,3 +28,4 @@ class EmailSender:
             if self.user:
                 s.login(self.user, self.password)
             s.send_message(msg)
+        return "Sent"

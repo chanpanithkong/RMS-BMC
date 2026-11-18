@@ -104,6 +104,9 @@ class OrderItem(IdMixin, TimestampMixin, VersionMixin, Base):
     served_at: Mapped[datetime | None]
     cancelled_at: Mapped[datetime | None]
     replaces_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("order_items.id"))
+    # Combo meals (FR-MENU-005): the combo is a $0 header line; each chosen item is a child line carrying its share of the combo price.
+    parent_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("order_items.id"), index=True)
+    combo_slot_name: Mapped[str | None] = mapped_column(String(60))
     line_gross: Mapped[Decimal] = mapped_column(default=Decimal("0"))
     line_discount: Mapped[Decimal] = mapped_column(default=Decimal("0"))
     line_net: Mapped[Decimal] = mapped_column(default=Decimal("0"))

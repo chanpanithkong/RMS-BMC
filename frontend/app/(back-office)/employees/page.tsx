@@ -1,425 +1,345 @@
 "use client"
 
 import * as React from "react"
-import { CalendarPlus } from "lucide-react"
-import { toast } from "sonner"
+import { Activity, Ban, CalendarPlus, Check, LogIn, LogOut, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { CrudTable, RecordDialog, newId } from "@/components/rms/crud"
+import { CrudTable, RecordDialog } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
-import {
-  Page,
-  PageHeader,
-  PageTabs,
-  StatusBadge,
-  useTab,
-} from "@/components/rms/kit"
+import { KV, Page, PageHeader, PageTabs, Panel, SimpleSelect, StatusBadge, useTab } from "@/components/rms/kit"
+import { api } from "@/lib/api/client"
+import { can, useSession } from "@/lib/api/session"
+import { act, num, save, useApi, when } from "@/lib/api/use-api"
 import { usd } from "@/lib/rms/billing"
-import { employees } from "@/lib/rms/back-office"
-import { cn } from "@/lib/utils"
 
-const days = [
-  "Mon 02",
-  "Tue 03",
-  "Wed 04",
-  "Thu 05",
-  "Fri 06",
-  "Sat 07",
-  "Sun 08",
-]
-const shiftTone: Record<string, string> = {
-  Morning: "bg-info-soft text-info",
-  Evening: "bg-warning-soft text-warning",
-  Split: "bg-success-soft text-success",
+interface Employee {
+  id: string
+  employee_code: string
+  name_en: string
+  name_km: string | null
+  department_id: string | null
+  position_id: string | null
+  status: string
+  start_date: string
+  phone: string | null
+  user_id: string | null
 }
-const initialSchedule = (): Record<string, string[]> =>
-  Object.fromEntries(
-    employees
-      .slice(0, 9)
-      .map((e, i) => [
-        e.id,
-        days.map((_, d) =>
-          (i + d) % 6 === 5
-            ? "Off"
-            : (i + d) % 3 === 0
-              ? "Evening"
-              : (i * d) % 5 === 4
-                ? "Split"
-                : "Morning"
-        ),
-      ])
-  )
+interface Named {
+  id: string
+  name: string
+  is_active: boolean
+}
+interface Shift {
+  id: string
+  employee_id: string
+  employee: string
+  shift_date: string
+  start_time: string
+  end_time: string
+  note: string | null
+}
+
+const monday = (d = new Date()) => {
+  const x = new Date(d)
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
+  return x.toLocaleDateString("en-CA")
+}
 
 export default function EmployeesPage() {
+  const { me } = useSession()
+  const manage = can(me, "employees.manage")
   const [tab, setTab] = useTab("employees")
-  const [schedule, setSchedule] = React.useState(initialSchedule)
-  const [open, setOpen] = React.useState(false)
+  const emps = useApi(() => api<Employee[]>("GET", "/employees"), [], [])
+  const depts = useApi(() => api<Named[]>("GET", "/departments"), [], [])
+  const positions = useApi(() => api<Named[]>("GET", "/positions"), [], [])
+  const users = useApi(
+    async () => (can(me, "users.view") ? (await api<{ data: { id: string; full_name: string; username: string }[] }>("GET", "/users", { query: { page_size: 200 } })).data : []),
+    [me?.id],
+    []
+  )
+  const [week, setWeek] = React.useState(monday())
+  const shifts = useApi(() => api<Shift[]>("GET", "/shift-schedules", { query: { week_start: week } }), [week], [])
+  const attendance = useApi(
+    () => api<{ id: string; employee: string; employee_code: string; clock_in: string; clock_out: string | null; hours: number | null }[]>("GET", "/attendance"),
+    [tab === "attendance"],
+    []
+  )
+  const [actFor, setActFor] = React.useState("")
+  const activity = useApi(
+    () => (actFor ? api<Record<string, unknown>>("GET", `/employees/${actFor}/activity`) : Promise.resolve(null)),
+    [actFor],
+    null as Record<string, unknown> | null
+  )
+  const [addShift, setAddShift] = React.useState(false)
+  const name = (list: Named[], id: string | null) => list.find((x) => x.id === id)?.name ?? "—"
+  const byName = (list: Named[], n: unknown) => list.find((x) => x.name === n)?.id ?? null
+  const userLabel = (u: { full_name: string; username: string }) => `${u.full_name} (${u.username})`
+
+  const rows = emps.data.map((e) => ({
+    ...e,
+    department: name(depts.data, e.department_id),
+    position: name(positions.data, e.position_id),
+    account: users.data.find((u) => u.id === e.user_id)?.username ?? (e.user_id ? "Linked" : "—"),
+  }))
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(`${week}T00:00`)
+    d.setDate(d.getDate() + i)
+    return d.toLocaleDateString("en-CA")
+  })
+
   return (
     <Page>
-      <PageHeader
-        title="Employees"
-        description="Employee records are kept separately from system user accounts. Payroll is out of scope."
-      />
+      <PageHeader title="Employees" description="Staff records, shift schedules and attendance. An employee can be linked to one user account." />
       <PageTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "employees", label: "Employees", count: employees.length },
+          { value: "employees", label: "Employees", count: rows.length },
           { value: "schedule", label: "Schedule" },
+          { value: "attendance", label: "Attendance" },
           { value: "departments", label: "Departments" },
           { value: "positions", label: "Positions" },
-          { value: "attendance", label: "Attendance" },
           { value: "activity", label: "Activity" },
         ]}
       />
       {tab === "employees" && (
         <CrudTable
           noun="Employee"
-          seed={employees}
+          rows={rows}
+          canAdd={manage}
+          canEdit={manage}
+          onSave={(v, e) => {
+            const user = users.data.find((u) => userLabel(u) === v.user)
+            const common = {
+              name_en: v.name,
+              name_km: String(v.km ?? "") || null,
+              department_id: byName(depts.data, v.department),
+              position_id: byName(positions.data, v.position),
+              phone: String(v.phone ?? "") || null,
+              user_id: user?.id ?? null,
+            }
+            return save(() =>
+              e ? api("PATCH", `/employees/${e.id}`, { body: common }) : api("POST", "/employees", { body: { ...common, employee_code: v.code, start_date: v.start } })
+            ).then(emps.reload)
+          }}
           filters={[
-            { key: "department", label: "Department" },
+            { key: "department", label: "Department", options: depts.data.map((d) => d.name) },
             { key: "status", label: "Status", options: ["Active", "Inactive"] },
           ]}
           columns={[
-            { key: "code", header: "Code" },
-            {
-              key: "name",
-              header: "Name",
-              render: (e) => <span className="font-medium">{e.name}</span>,
-            },
-            { key: "km", header: "Khmer name" },
+            { key: "employee_code", header: "Code" },
+            { key: "name_en", header: "Name", render: (e) => <span className="font-medium">{e.name_en}</span> },
             { key: "department", header: "Department" },
             { key: "position", header: "Position" },
-            { key: "branch", header: "Branch" },
-            { key: "start", header: "Start date" },
-            {
-              key: "user",
-              header: "User account",
-              render: (e) => e.user || "Not linked",
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (e) => <StatusBadge status={e.status} />,
-            },
+            { key: "phone", header: "Phone", render: (e) => e.phone ?? "—" },
+            { key: "start_date", header: "Started" },
+            { key: "account", header: "User account" },
+            { key: "status", header: "Status", render: (e) => <StatusBadge status={e.status} /> },
           ]}
           fields={[
-            {
-              name: "name",
-              label: "Name (English)",
-              required: true,
-              half: true,
-            },
-            { name: "km", label: "Name (Khmer)", required: true, half: true },
-            {
-              name: "code",
-              label: "Employee code",
-              required: true,
-              half: true,
-            },
+            { name: "name", label: "English name", required: true, half: true },
+            { name: "km", label: "Khmer name", half: true },
+            { name: "code", label: "Employee code (can't change later)", required: true, half: true },
+            { name: "start", label: "Start date (new employees)", type: "date", half: true },
+            { name: "department", label: "Department", type: "select", options: depts.data.filter((d) => d.is_active).map((d) => d.name), half: true },
+            { name: "position", label: "Position", type: "select", options: positions.data.filter((p) => p.is_active).map((p) => p.name), half: true },
             { name: "phone", label: "Phone", type: "tel", half: true },
-            {
-              name: "department",
-              label: "Department",
-              type: "select",
-              options: [
-                "Management",
-                "Front of house",
-                "Kitchen",
-                "Bar",
-                "Stores",
-                "Finance",
-                "Delivery",
-              ],
-              required: true,
-              half: true,
-            },
-            { name: "position", label: "Position", required: true, half: true },
-            {
-              name: "branch",
-              label: "Branch",
-              type: "select",
-              options: ["Riverside", "BKK1", "Siem Reap"],
-              required: true,
-              half: true,
-            },
-            {
-              name: "start",
-              label: "Start date (DD/MM/YYYY)",
-              required: true,
-              half: true,
-            },
-            { name: "user", label: "Linked user account (optional)" },
+            { name: "user", label: "User account", type: "select", options: users.data.map(userLabel), half: true },
           ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            status: e?.status ?? "Active",
-            code: String(v.code),
-            name: String(v.name),
-            km: String(v.km),
-            department: String(v.department),
-            position: String(v.position),
-            branch: String(v.branch),
-            start: String(v.start),
-            phone: String(v.phone ?? ""),
-            user: String(v.user ?? ""),
+          toForm={(e) => ({
+            name: e.name_en,
+            km: e.name_km ?? "",
+            code: e.employee_code,
+            start: e.start_date,
+            department: e.department === "—" ? "" : e.department,
+            position: e.position === "—" ? "" : e.position,
+            phone: e.phone ?? "",
+            user: (() => {
+              const u = users.data.find((x) => x.id === e.user_id)
+              return u ? userLabel(u) : ""
+            })(),
           })}
+          extraActions={(e) => [
+            { label: "Clock in", icon: LogIn, hidden: () => e.status !== "Active", onClick: () => void act(() => api("POST", `/employees/${e.id}/clock-in`), `${e.name_en} clocked in`) },
+            { label: "Clock out", icon: LogOut, hidden: () => e.status !== "Active", onClick: () => void act(() => api("POST", `/employees/${e.id}/clock-out`), `${e.name_en} clocked out`) },
+            {
+              label: "Activity",
+              icon: Activity,
+              onClick: () => {
+                setActFor(e.id)
+                setTab("activity")
+              },
+            },
+            ...(manage
+              ? [
+                  e.status === "Active"
+                    ? {
+                        label: "Deactivate",
+                        icon: Ban,
+                        destructive: true,
+                        onClick: () => void act(() => api("PATCH", `/employees/${e.id}`, { body: { status: "Inactive" } }), `${e.name_en} deactivated (and the linked user)`, emps.reload),
+                      }
+                    : { label: "Activate", icon: Check, onClick: () => void act(() => api("PATCH", `/employees/${e.id}`, { body: { status: "Active" } }), `${e.name_en} activated`, emps.reload) },
+                ]
+              : []),
+          ]}
         />
       )}
       {tab === "schedule" && (
-        <>
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Week of 02/11/2026. Click a cell to change the shift.
-            </p>
-            <Button onClick={() => setOpen(true)}>
-              <CalendarPlus />
-              Add shift
-            </Button>
-          </div>
-          <div className="overflow-x-auto rounded-xl border bg-card">
-            <table className="w-full min-w-3xl text-sm">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="p-2 text-left font-medium">Employee</th>
-                  {days.map((d) => (
-                    <th key={d} className="p-2 text-center font-medium">
-                      {d}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {employees.slice(0, 9).map((e) => (
-                  <tr key={e.id} className="border-t">
-                    <td className="p-2 font-medium whitespace-nowrap">
-                      {e.name}
-                      <span className="block text-xs font-normal text-muted-foreground">
-                        {e.position}
-                      </span>
-                    </td>
-                    {schedule[e.id].map((s, d) => (
-                      <td key={d} className="p-1">
-                        <button
-                          aria-label={`${e.name} ${days[d]}: ${s}`}
-                          className={cn(
-                            "w-full rounded-md px-1.5 py-2 text-xs font-medium",
-                            shiftTone[s] ??
-                              "text-muted-foreground hover:bg-muted"
-                          )}
-                          onClick={() =>
-                            setSchedule((c) => ({
-                              ...c,
-                              [e.id]: c[e.id].map((x, i) =>
-                                i === d
-                                  ? ["Morning", "Evening", "Split", "Off"][
-                                      ([
-                                        "Morning",
-                                        "Evening",
-                                        "Split",
-                                        "Off",
-                                      ].indexOf(x) +
-                                        1) %
-                                        4
-                                    ]
-                                  : x
-                              ),
-                            }))
-                          }
-                        >
-                          {s}
-                        </button>
-                      </td>
+        <Panel
+          title={`Week of ${week}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setWeek(monday(new Date(new Date(`${week}T00:00`).getTime() - 7 * 86_400_000)))}>
+                Previous
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setWeek(monday())}>
+                This week
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setWeek(monday(new Date(new Date(`${week}T00:00`).getTime() + 7 * 86_400_000)))}>
+                Next
+              </Button>
+              {manage && (
+                <Button size="sm" onClick={() => setAddShift(true)}>
+                  <CalendarPlus />
+                  Add shift
+                </Button>
+              )}
+            </div>
+          }
+        >
+          <div className="grid gap-2 md:grid-cols-7">
+            {days.map((d) => (
+              <div key={d} className="min-h-28 rounded-lg border p-2">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">{new Date(`${d}T00:00`).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}</p>
+                <ul className="grid gap-1">
+                  {shifts.data
+                    .filter((s) => s.shift_date === d)
+                    .map((s) => (
+                      <li key={s.id} className="flex items-start justify-between gap-1 rounded bg-muted px-1.5 py-1 text-xs">
+                        <span>
+                          <span className="font-medium">{s.employee}</span>
+                          <span className="block tabular">
+                            {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                          </span>
+                          {s.note && <span className="block text-muted-foreground">{s.note}</span>}
+                        </span>
+                        {manage && (
+                          <button
+                            aria-label={`Remove ${s.employee}'s shift`}
+                            className="text-muted-foreground hover:text-danger"
+                            onClick={() => void act(() => api("DELETE", `/shift-schedules/${s.id}`), "Shift removed", shifts.reload)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </li>
                     ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </ul>
+              </div>
+            ))}
           </div>
-        </>
+        </Panel>
+      )}
+      {tab === "attendance" && (
+        <DataTable
+          rows={attendance.data.map((a) => ({ ...a, in: when(a.clock_in), out: a.clock_out ? when(a.clock_out) : "Still clocked in" }))}
+          exportName="attendance"
+          emptyTitle="No attendance in the last two weeks"
+          filters={[{ key: "employee", label: "Employee" }]}
+          columns={[
+            { key: "employee", header: "Employee" },
+            { key: "in", header: "Clock in" },
+            { key: "out", header: "Clock out" },
+            { key: "hours", header: "Hours", align: "right", render: (a) => (a.hours === null ? "—" : a.hours.toFixed(2)) },
+          ]}
+        />
       )}
       {tab === "departments" && (
         <CrudTable
           noun="Department"
-          seed={[
-            "Management",
-            "Front of house",
-            "Kitchen",
-            "Bar",
-            "Stores",
-            "Finance",
-            "Delivery",
-          ].map((name, i) => ({
-            id: `d${i}`,
-            name,
-            staff: employees.filter((e) => e.department === name).length,
-          }))}
+          rows={depts.data.map((d) => ({ ...d, status: d.is_active ? "Active" : "Inactive" }))}
+          canAdd={manage}
+          canEdit={false}
+          onSave={(v) => save(() => api("POST", "/departments", { body: { name: v.name } })).then(depts.reload)}
           columns={[
             { key: "name", header: "Department" },
-            { key: "staff", header: "Employees", align: "right" },
+            { key: "people", header: "Employees", align: "right", value: (d) => emps.data.filter((e) => e.department_id === d.id).length },
+            { key: "status", header: "Status", render: (d) => <StatusBadge status={d.status} /> },
           ]}
           fields={[{ name: "name", label: "Name", required: true }]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            staff: e?.staff ?? 0,
-          })}
         />
       )}
       {tab === "positions" && (
         <CrudTable
           noun="Position"
-          seed={[...new Set(employees.map((e) => e.position))].map(
-            (name, i) => ({
-              id: `p${i}`,
-              name,
-              staff: employees.filter((e) => e.position === name).length,
-            })
-          )}
+          rows={positions.data.map((p) => ({ ...p, status: p.is_active ? "Active" : "Inactive" }))}
+          canAdd={manage}
+          canEdit={false}
+          onSave={(v) => save(() => api("POST", "/positions", { body: { name: v.name } })).then(positions.reload)}
           columns={[
             { key: "name", header: "Position" },
-            { key: "staff", header: "Employees", align: "right" },
+            { key: "people", header: "Employees", align: "right", value: (p) => emps.data.filter((e) => e.position_id === p.id).length },
+            { key: "status", header: "Status", render: (p) => <StatusBadge status={p.status} /> },
           ]}
           fields={[{ name: "name", label: "Name", required: true }]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            staff: e?.staff ?? 0,
-          })}
-        />
-      )}
-      {tab === "attendance" && (
-        <DataTable
-          rows={employees
-            .slice(2, 9)
-            .map((e, i) => ({
-              id: e.id,
-              name: e.name,
-              shift: i % 2 ? "Evening" : "Morning",
-              in: i % 2 ? "—" : `07:5${i}`,
-              out: "—",
-              status: i % 2 ? "Scheduled" : "Active",
-            }))}
-          exportName="attendance"
-          columns={[
-            { key: "name", header: "Employee" },
-            { key: "shift", header: "Shift" },
-            { key: "in", header: "Clock in" },
-            { key: "out", header: "Clock out" },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => (
-                <StatusBadge
-                  status={r.status === "Active" ? "On shift" : r.status}
-                  tone={r.status === "Active" ? "success" : "info"}
-                />
-              ),
-            },
-          ]}
-          rowActions={(r) => [
-            {
-              label: "Clock in",
-              onClick: () => toast.success(`${r.name} clocked in`),
-              hidden: () => r.in !== "—",
-            },
-          ]}
         />
       )}
       {tab === "activity" && (
-        <DataTable
-          rows={[
-            {
-              id: "1",
-              name: "Lina Chhay",
-              sessions: 4,
-              sales: 2120.75,
-              voids: 2,
-              discounts: 6,
-              refunds: 1,
-            },
-            {
-              id: "2",
-              name: "Sokha Heng",
-              sessions: 0,
-              sales: 3041.2,
-              voids: 3,
-              discounts: 2,
-              refunds: 0,
-            },
-            {
-              id: "3",
-              name: "Dara Mean",
-              sessions: 0,
-              sales: 2688.4,
-              voids: 1,
-              discounts: 1,
-              refunds: 0,
-            },
-            {
-              id: "4",
-              name: "Vuthy Sam",
-              sessions: 3,
-              sales: 1102,
-              voids: 0,
-              discounts: 4,
-              refunds: 0,
-            },
-          ]}
-          exportName="staff-activity"
-          columns={[
-            { key: "name", header: "Employee" },
-            { key: "sessions", header: "Sessions", align: "right" },
-            {
-              key: "sales",
-              header: "Sales",
-              align: "right",
-              render: (r) => usd(r.sales),
-            },
-            { key: "voids", header: "Voids", align: "right" },
-            { key: "discounts", header: "Discounts", align: "right" },
-            { key: "refunds", header: "Refunds", align: "right" },
-          ]}
-        />
+        <Panel title="Activity in the last 30 days" description="Taken from the user account linked to the employee." className="max-w-xl">
+          <SimpleSelect
+            aria-label="Employee"
+            value={actFor}
+            onChange={setActFor}
+            options={emps.data.map((e) => ({ value: e.id, label: `${e.name_en} (${e.employee_code})` }))}
+            placeholder="Choose an employee…"
+          />
+          {actFor && activity.data && (
+            <div className="mt-3">
+              {activity.data.linked_user ? (
+                <KV
+                  items={[
+                    ["Period", `${activity.data.from} – ${activity.data.to}`],
+                    ["Cashier sessions", String(activity.data.cashier_sessions)],
+                    ["Orders served", String(activity.data.orders_served)],
+                    ["Payments taken", usd(num(activity.data.payments_taken_base))],
+                    ["Voided items", String(activity.data.voids)],
+                    ["Discounts requested", String(activity.data.discounts)],
+                    ["Refunds requested", String(activity.data.refunds_requested)],
+                  ]}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">This employee has no linked user account, so there is no system activity.</p>
+              )}
+            </div>
+          )}
+        </Panel>
       )}
       <RecordDialog
-        open={open}
-        onOpenChange={setOpen}
+        open={addShift}
+        onOpenChange={setAddShift}
         title="Add shift"
+        description="Overlapping shifts for the same person are refused."
         fields={[
-          {
-            name: "employee",
-            label: "Employee",
-            type: "select",
-            options: employees.slice(0, 9).map((e) => e.name),
-            required: true,
-          },
-          {
-            name: "day",
-            label: "Day",
-            type: "select",
-            options: days,
-            required: true,
-            half: true,
-          },
-          {
-            name: "shift",
-            label: "Shift",
-            type: "select",
-            options: ["Morning", "Evening", "Split", "Off"],
-            required: true,
-            half: true,
-          },
+          { name: "employee", label: "Employee", type: "select", options: emps.data.filter((e) => e.status === "Active").map((e) => e.name_en), required: true },
+          { name: "date", label: "Date", type: "date", required: true, half: true },
+          { name: "note", label: "Note", half: true },
+          { name: "start", label: "Start", type: "time", required: true, half: true },
+          { name: "end", label: "End", type: "time", required: true, half: true },
         ]}
-        onSubmit={(v) => {
-          const e = employees.find((x) => x.name === v.employee)!
-          setSchedule((c) => ({
-            ...c,
-            [e.id]: c[e.id].map((x, i) =>
-              days[i] === v.day ? String(v.shift) : x
-            ),
-          }))
-          toast.success("Shift scheduled")
-        }}
+        initial={{ date: week }}
+        onSubmit={(v) =>
+          save(() =>
+            api("POST", "/shift-schedules", {
+              body: {
+                employee_id: emps.data.find((e) => e.name_en === v.employee)!.id,
+                shift_date: v.date,
+                start_time: v.start,
+                end_time: v.end,
+                note: String(v.note ?? "") || undefined,
+              },
+            })
+          ).then(shifts.reload)
+        }
       />
     </Page>
   )

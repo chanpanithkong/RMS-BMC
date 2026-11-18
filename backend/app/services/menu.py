@@ -1,6 +1,7 @@
 """Menu catalogue, effective-dated prices and availability (SRS §6.2; BR-003, BR-026, BR-048)."""
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 from sqlalchemy import DateTime, and_, cast, or_, select
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import Ctx
 from app.core.exceptions import BusinessRuleError, Conflict, NotFound
 from app.core.realtime import emit
-from app.models import BranchMenuItem, ItemModifierGroup, MenuItem, MenuItemVariant, MenuPrice, ModifierGroup, PriceList
+from app.models import Branch, BranchMenuItem, ItemModifierGroup, MenuItem, MenuItemVariant, MenuPrice, MenuSchedule, MenuScheduleItem, ModifierGroup, PriceList
 from app.services.platform import audit, get_setting
 from app.utils.timeutil import utcnow
 
@@ -32,6 +33,64 @@ def current_price(db: Session, variant_id: uuid.UUID, branch_id: uuid.UUID, list
     return db.scalars(stmt).first()
 
 
+def _in_window(local: datetime, days: list[int] | None, t_from, t_to) -> bool:
+    """Days (0 = Monday) and a time window that may pass midnight, in the branch's local time."""
+    if days and local.weekday() not in days:
+        return False
+    if t_from and t_to:
+        t = local.time()
+        return t_from <= t < t_to if t_from <= t_to else (t >= t_from or t < t_to)
+    return True
+
+
+def local_now(db: Session, branch_id: uuid.UUID, at: datetime | None = None) -> datetime:
+    b = db.get(Branch, branch_id)
+    return (at or utcnow()).astimezone(ZoneInfo(b.timezone))
+
+
+def list_applies(pl: PriceList, branch_id: uuid.UUID, channel: str | None, order_type: str | None, local: datetime) -> bool:
+    if not (pl.is_active and pl.auto_apply):
+        return False
+    if pl.channels and channel not in pl.channels:
+        return False
+    if pl.order_types and order_type not in pl.order_types:
+        return False
+    if pl.branch_ids and str(branch_id) not in pl.branch_ids:
+        return False
+    return _in_window(local, pl.days_of_week, pl.time_from, pl.time_to)
+
+
+def effective_price(db: Session, variant_id: uuid.UUID, branch_id: uuid.UUID, channel: str | None = None, order_type: str | None = None,
+                    base_code: str | None = None, at: datetime | None = None) -> tuple[MenuPrice | None, PriceList | None]:
+    """FR-MENU-008: the highest-priority automatic price list in effect now that has a price for the variant, else the base list.
+    Returns the price and the list it came from (None = base list)."""
+    at = at or utcnow()
+    local = local_now(db, branch_id, at)
+    for pl in db.scalars(select(PriceList).where(PriceList.is_active, PriceList.auto_apply).order_by(PriceList.priority.desc(), PriceList.code)):
+        if list_applies(pl, branch_id, channel, order_type, local):
+            p = current_price(db, variant_id, branch_id, pl.id, at)
+            if p is not None:
+                return p, pl
+    return current_price(db, variant_id, branch_id, price_list_id(db, base_code, branch_id), at), None
+
+
+def schedule_reason(db: Session, branch_id: uuid.UUID, item: MenuItem, at: datetime | None = None) -> str | None:
+    """BR-003: an item on one or more active schedules is sellable only while at least one of them is in effect."""
+    schedules = list(db.scalars(select(MenuSchedule).join(MenuScheduleItem, MenuScheduleItem.schedule_id == MenuSchedule.id)
+                                .where(MenuScheduleItem.menu_item_id == item.id, MenuSchedule.is_active)))
+    if not schedules:
+        return None
+    local = local_now(db, branch_id, at)
+    for s in schedules:
+        if s.branch_ids and str(branch_id) not in s.branch_ids:
+            continue
+        if s.date_from and local.date() < s.date_from or s.date_to and local.date() > s.date_to:
+            continue
+        if _in_window(local, s.days_of_week, s.time_from, s.time_to):
+            return None
+    return "outside its menu schedule"
+
+
 def availability(db: Session, branch_id: uuid.UUID, item: MenuItem) -> str | None:
     """None when the item can be sold now; otherwise the reason (BR-003)."""
     if not item.is_active:
@@ -41,7 +100,7 @@ def availability(db: Session, branch_id: uuid.UUID, item: MenuItem) -> str | Non
         return "not sold at this branch"
     if bmi is not None and bmi.unavailable_until and bmi.unavailable_until > utcnow():
         return bmi.unavailable_reason or "unavailable (86)"
-    return None
+    return schedule_reason(db, branch_id, item)
 
 
 def item_groups(db: Session, item_id: uuid.UUID) -> list[ModifierGroup]:

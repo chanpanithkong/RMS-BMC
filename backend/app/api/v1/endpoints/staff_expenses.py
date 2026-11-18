@@ -210,6 +210,17 @@ def delete_shift(shift_id: uuid.UUID, ctx: EManage):
     return {"message": "Shift removed."}
 
 
+@staff.get("/attendance", summary="Clock-in and clock-out records of this branch, newest first (FR-STAFF-004)")
+def attendance(ctx: EView, date_from: date | None = None, date_to: date | None = None):
+    end = date_to or ctx.business_date()
+    start = date_from or end - timedelta(days=13)
+    rows = ctx.db.execute(select(Attendance, Employee.name_en, Employee.employee_code).join(Employee, Employee.id == Attendance.employee_id)
+                          .where(Attendance.branch_id == ctx.branch_id, func.date(Attendance.clock_in) >= start, func.date(Attendance.clock_in) <= end + timedelta(days=1))
+                          .order_by(Attendance.clock_in.desc()).limit(500)).all()
+    return [{"id": a.id, "employee_id": a.employee_id, "employee": name, "employee_code": code, "clock_in": a.clock_in, "clock_out": a.clock_out,
+             "hours": round((a.clock_out - a.clock_in).total_seconds() / 3600, 2) if a.clock_out else None} for a, name, code in rows]
+
+
 @staff.post("/employees/{employee_id}/clock-{action}", summary="Attendance (FR-STAFF-004): clock-in or clock-out")
 def clock(employee_id: uuid.UUID, action: Literal["in", "out"], ctx: EView):
     e = _employee(ctx, employee_id)

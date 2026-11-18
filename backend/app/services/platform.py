@@ -181,7 +181,10 @@ def requires_approval(ctx: Ctx, limit_key: str, amount: Decimal) -> bool:
 
 # ---------------------------------------------------------------- notifications (NOTIF)
 def notify_users(db: Session, user_ids: list[uuid.UUID], branch_id: uuid.UUID | None, kind: str, title: str, body: str, link: str | None = None, data: dict | None = None) -> None:
-    for uid in set(user_ids):
+    from app.services.messages import muted_users
+
+    muted = muted_users(db, list(set(user_ids)), kind)  # optional kinds the person turned off (FR-NOTIF-011)
+    for uid in set(user_ids) - muted:
         n = Notification(branch_id=branch_id, recipient_user_id=uid, kind=kind, title=title, body=body, link=link, data=_jsonable(data))
         db.add(n)
         db.flush()

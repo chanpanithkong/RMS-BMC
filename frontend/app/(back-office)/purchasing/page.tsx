@@ -1,316 +1,297 @@
 "use client"
 
 import * as React from "react"
-import {
-  CheckCircle2,
-  FileDown,
-  PackageCheck,
-  Send,
-  ShieldCheck,
-  Undo2,
-  XCircle,
-} from "lucide-react"
-import { toast } from "sonner"
+import { Ban, Check, CircleDollarSign, FileText, PackageCheck, Plus, Send, ShieldCheck, Truck, Undo2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { CrudTable } from "@/components/rms/crud"
+import { RecordDialog, type Field, type FieldValue } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
-import { confirmAction, requestApproval } from "@/components/rms/dialog-host"
-import {
-  Notice,
-  Page,
-  PageHeader,
-  PageTabs,
-  StatusBadge,
-  useTab,
-} from "@/components/rms/kit"
+import { confirmAction } from "@/components/rms/dialog-host"
+import { Page, PageHeader, PageTabs, StatusBadge, useTab } from "@/components/rms/kit"
+import * as inv from "@/lib/api/inventory"
+import * as pur from "@/lib/api/purchasing"
+import { can, useSession } from "@/lib/api/session"
+import { act, num, save, useApi, when } from "@/lib/api/use-api"
 import { usd } from "@/lib/rms/billing"
-import {
-  goodsReceipts,
-  purchaseOrders,
-  purchaseRequests,
-  purchaseReturns,
-  supplierInvoices,
-  suppliers,
-} from "@/lib/rms/back-office"
 
-type PO = (typeof purchaseOrders)[number]
-const poLines = [
-  { name: "Beef sirloin", ordered: 30, unit: "kg", price: 9.8 },
-  { name: "Pork shoulder", ordered: 20, unit: "kg", price: 5.2 },
-  { name: "Eggs", ordered: 180, unit: "piece", price: 0.14 },
-]
-const supplierNames = suppliers.map((s) => s.name)
-const seq = (p: string) => `${p}-${Math.floor(3000 + Math.random() * 6000)}`
+const LABEL: Record<string, string> = { PendingApproval: "Pending Approval", PartiallyReceived: "Partially Received", PartiallyPaid: "Partially Paid", ForReview: "For Review", LowStock: "Low stock" }
+const label = (s: string) => LABEL[s] ?? s
+const today = () => new Date().toLocaleDateString("en-CA")
+
+async function loadRefs() {
+  const [suppliers, ingredients, units, locations] = await Promise.all([pur.suppliers(), inv.ingredients(), inv.units(), inv.locations()])
+  return { suppliers, ingredients, units, locations }
+}
+const noRefs = { suppliers: [], ingredients: [], units: [], locations: [] } as Awaited<ReturnType<typeof loadRefs>>
+
+type Dialog =
+  | { kind: "request" }
+  | { kind: "po"; request?: pur.PurchaseRequest }
+  | { kind: "receive"; po: pur.PO }
+  | { kind: "return"; gr: pur.GR }
+  | { kind: "invoice" }
+  | { kind: "pay"; invoice: pur.Invoice }
+  | null
 
 export default function PurchasingPage() {
-  const [tab, setTab] = useTab("orders")
-  const [orders, setOrders] = React.useState(purchaseOrders)
-  const [receiving, setReceiving] = React.useState<PO | null>(null)
-  const [received, setReceived] = React.useState<Record<string, string>>({})
-  const [posted, setPosted] = React.useState<string[]>([])
-  const patch = (id: string, status: string) =>
-    setOrders((o) => o.map((x) => (x.id === id ? { ...x, status } : x)))
-  const over = receiving
-    ? poLines.some((l) => Number(received[l.name] || 0) > l.ordered * 1.05)
-    : false
+  const { me } = useSession()
+  const [tab, setTab] = useTab("requests")
+  const refs = useApi(loadRefs, [], noRefs)
+  const reqs = useApi(pur.requests, [], [])
+  const pos = useApi(pur.orders, [], [])
+  const grs = useApi(pur.receipts, [], [])
+  const rets = useApi(pur.returns, [], [])
+  const invs = useApi(pur.invoices, [], [])
+  const [dialog, setDialog] = React.useState<Dialog>(null)
+  const reload = () => [reqs, pos, grs, rets, invs].forEach((x) => x.reload())
+
+  const { suppliers, ingredients, units, locations } = refs.data
+  const supName = (id: string | null) => suppliers.find((s) => s.id === id)?.name ?? "—"
+  const ingName = (id: string) => ingredients.find((i) => i.id === id)?.name_en ?? "?"
+  const unitCode = (id: string) => units.find((u) => u.id === id)?.code ?? ""
+  const locName = (id: string) => locations.find((l) => l.id === id)?.name ?? ""
+  const items = (lines: { ingredient_id: string; uom_id: string }[], qty: (l: never) => string | number) =>
+    lines.map((l) => `${ingName(l.ingredient_id)} ${inv.qty(qty(l as never), unitCode(l.uom_id))}`).join(", ")
+  const activeSup = suppliers.filter((s) => s.status === "Active").map((s) => s.name)
+  const ingOpts = ingredients.filter((i) => i.is_active).map((i) => i.name_en)
+  const locOpts = locations.filter((l) => l.is_active).map((l) => l.name)
+  const unitFor = (ingNameV: FieldValue, unitV?: FieldValue) => {
+    const ing = ingredients.find((i) => i.name_en === ingNameV)
+    return units.find((u) => u.code === unitV)?.id ?? ing?.stock_uom_id ?? ""
+  }
+  const run = (fn: () => Promise<unknown>, done: string) => void act(fn, done, reload)
+
+  // Dynamic dialog content
+  const d = dialog
+  let fields: Field[] = []
+  let title = ""
+  let description: string | undefined
+  let onSubmit: (v: Record<string, FieldValue>) => Promise<unknown> = async () => undefined
+  if (d?.kind === "request") {
+    title = "New purchase request"
+    fields = [
+      { name: "ingredient", label: "Ingredient", type: "select", options: ingOpts, required: true },
+      { name: "qty", label: "Quantity", type: "number", min: 0.001, required: true, half: true },
+      { name: "unit", label: "Unit", type: "select", options: units.map((u) => u.code), half: true, hint: "Default: stock unit" },
+      { name: "note", label: "Note" },
+    ]
+    onSubmit = (v) =>
+      save(() =>
+        pur.createRequest(
+          [{ ingredient_id: ingredients.find((i) => i.name_en === v.ingredient)!.id, quantity: String(v.qty), uom_id: unitFor(v.ingredient, v.unit) }],
+          String(v.note ?? "") || undefined
+        )
+      ).then(reload)
+  } else if (d?.kind === "po") {
+    const lines = d.request?.lines ?? null
+    title = d.request ? `Purchase order from ${d.request.request_no}` : "New purchase order"
+    description = "Enter the agreed unit price for each line. The order then goes for approval."
+    fields = [
+      { name: "supplier", label: "Supplier", type: "select", options: activeSup, required: true, half: true },
+      { name: "location", label: "Deliver to", type: "select", options: locOpts, required: true, half: true },
+      { name: "date", label: "Delivery date", type: "date", half: true },
+      ...(lines
+        ? lines.map((l, i) => ({
+            name: `price${i}`,
+            label: `${ingName(l.ingredient_id)}: ${inv.qty(l.quantity, unitCode(l.uom_id))}, unit price (USD per ${unitCode(l.uom_id)})`,
+            type: "number" as const,
+            min: 0,
+            required: true,
+          }))
+        : ([
+            { name: "ingredient", label: "Ingredient", type: "select", options: ingOpts, required: true },
+            { name: "qty", label: "Quantity", type: "number", min: 0.001, required: true, half: true },
+            { name: "unit", label: "Unit", type: "select", options: units.map((u) => u.code), half: true },
+            { name: "price", label: "Unit price (USD)", type: "number", min: 0, required: true, half: true },
+          ] as Field[])),
+    ]
+    onSubmit = (v) =>
+      save(() =>
+        pur.createPO({
+          supplier_id: suppliers.find((s) => s.name === v.supplier)!.id,
+          location_id: locations.find((l) => l.name === v.location)!.id,
+          delivery_date: String(v.date ?? "") || undefined,
+          request_id: d.request?.id,
+          lines: lines
+            ? lines.map((l, i) => ({ ingredient_id: l.ingredient_id, qty_ordered: l.quantity, uom_id: l.uom_id, unit_price: String(v[`price${i}`]) }))
+            : [
+                {
+                  ingredient_id: ingredients.find((i) => i.name_en === v.ingredient)!.id,
+                  qty_ordered: String(v.qty),
+                  uom_id: unitFor(v.ingredient, v.unit),
+                  unit_price: String(v.price),
+                },
+              ],
+        })
+      ).then(() => {
+        reload()
+        setTab("orders")
+      })
+  } else if (d?.kind === "receive") {
+    title = `Receive ${d.po.po_no}`
+    description = "Enter what arrived. Quantities beyond the receiving tolerance need a manager's approval before they are added to stock."
+    fields = d.po.lines.map((l) => ({
+      name: l.id,
+      label: `${ingName(l.ingredient_id)}: ordered ${inv.qty(l.qty_ordered)}, received so far ${inv.qty(l.qty_received)} ${unitCode(l.uom_id)}`,
+      type: "number" as const,
+      min: 0,
+    }))
+    onSubmit = (v) =>
+      save(() => pur.receive(d.po, Object.fromEntries(d.po.lines.map((l) => [l.id, Number(v[l.id] || 0)])))).then(() => {
+        reload()
+        setTab("receipts")
+      })
+  } else if (d?.kind === "return") {
+    title = `Return goods from ${d.gr.gr_no}`
+    fields = [
+      ...d.gr.lines.map((l) => ({
+        name: l.id,
+        label: `${ingName(l.ingredient_id)}: received ${inv.qty(l.qty_received, unitCode(l.uom_id))}`,
+        type: "number" as const,
+        min: 0,
+      })),
+      { name: "reason", label: "Reason", required: true },
+    ]
+    onSubmit = (v) =>
+      save(() =>
+        pur.createReturn(
+          d.gr.id,
+          String(v.reason),
+          d.gr.lines.filter((l) => Number(v[l.id]) > 0).map((l) => ({ gr_item_id: l.id, quantity: String(v[l.id]) }))
+        )
+      ).then(() => {
+        reload()
+        setTab("returns")
+      })
+  } else if (d?.kind === "invoice") {
+    const posted = grs.data.filter((g) => g.status === "Posted")
+    title = "Record supplier invoice"
+    description = "The invoice is matched against the posted receipt (less returns)."
+    fields = [
+      { name: "supplier", label: "Supplier", type: "select", options: activeSup, required: true, half: true },
+      { name: "no", label: "Invoice number", required: true, half: true },
+      { name: "date", label: "Invoice date", type: "date", required: true, half: true },
+      { name: "due", label: "Due date", type: "date", required: true, half: true },
+      { name: "amount", label: "Amount (USD)", type: "number", min: 0.01, required: true, half: true },
+      { name: "gr", label: "Goods receipt", type: "select", options: posted.map((g) => `${g.gr_no} · ${supName(g.supplier_id)} · ${usd(num(g.total_value))}`), half: true },
+    ]
+    onSubmit = (v) =>
+      save(() =>
+        pur.createInvoice({
+          supplier_id: suppliers.find((s) => s.name === v.supplier)!.id,
+          invoice_no: String(v.no),
+          invoice_date: String(v.date),
+          due_date: String(v.due),
+          amount: String(v.amount),
+          gr_ids: posted.filter((g) => String(v.gr ?? "").startsWith(`${g.gr_no} ·`)).map((g) => g.id),
+        })
+      ).then(reload)
+  } else if (d?.kind === "pay") {
+    title = `Pay ${d.invoice.invoice_no}`
+    description = `${supName(d.invoice.supplier_id)}. Outstanding ${usd(num(d.invoice.amount) - num(d.invoice.paid_amount))}.`
+    fields = [
+      { name: "amount", label: "Amount (USD)", type: "number", min: 0.01, required: true, half: true },
+      { name: "method", label: "Method", type: "select", options: ["BANK_TRANSFER", "CASH", "KHQR", "CHEQUE"], required: true, half: true },
+      { name: "ref", label: "Reference" },
+    ]
+    onSubmit = (v) => save(() => pur.payInvoice(d.invoice.id, { amount: String(v.amount), method: String(v.method), reference: String(v.ref ?? "") || undefined })).then(reload)
+  }
+
   return (
     <Page>
       <PageHeader
         title="Purchasing"
-        description="Requests become approved purchase orders. Goods post to stock exactly once."
+        description="Requests become purchase orders; receipts add stock exactly once; invoices are matched against what was received."
+        actions={
+          <>
+            {can(me, "purchases.request") && (
+              <Button variant="outline" onClick={() => setDialog({ kind: "request" })}>
+                <Plus />
+                Request
+              </Button>
+            )}
+            {can(me, "purchases.create") && (
+              <Button onClick={() => setDialog({ kind: "po" })}>
+                <Plus />
+                Purchase order
+              </Button>
+            )}
+          </>
+        }
       />
       <PageTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "requests", label: "Requests" },
-          { value: "orders", label: "Purchase orders" },
-          { value: "receipts", label: "Goods receipts" },
+          { value: "requests", label: "Requests", count: reqs.data.filter((r) => r.status === "Submitted").length || undefined },
+          { value: "orders", label: "Purchase orders", count: pos.data.length },
+          { value: "receipts", label: "Goods receipts", count: grs.data.filter((g) => g.status === "PendingApproval").length || undefined },
           { value: "returns", label: "Returns" },
-          { value: "invoices", label: "Invoices" },
+          { value: "invoices", label: "Invoices", count: invs.data.filter((i) => i.status !== "Paid").length || undefined },
         ]}
       />
       {tab === "requests" && (
-        <CrudTable
-          noun="Purchase request"
-          seed={purchaseRequests}
-          filters={[
-            {
-              key: "status",
-              label: "Status",
-              options: ["Submitted", "Approved", "Rejected"],
-            },
-          ]}
+        <DataTable
+          rows={reqs.data.map((r) => ({ ...r, items: items(r.lines, (l: pur.Line) => l.quantity), state: label(r.status), from: label(r.source) }))}
+          exportName="purchase-requests"
+          emptyTitle="No purchase requests"
           columns={[
-            { key: "id", header: "Request" },
-            { key: "date", header: "Date" },
-            { key: "by", header: "Requested by" },
-            { key: "source", header: "Source" },
+            { key: "request_no", header: "Request" },
+            { key: "from", header: "Source" },
             { key: "items", header: "Items" },
-            {
-              key: "value",
-              header: "Est. value",
-              align: "right",
-              render: (r) => usd(r.value),
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
+            { key: "state", header: "Status", render: (r) => <StatusBadge status={r.state} /> },
           ]}
-          fields={[
-            {
-              name: "items",
-              label: "Items and quantities",
-              type: "textarea",
-              required: true,
-            },
-            {
-              name: "value",
-              label: "Estimated value",
-              type: "number",
-              min: 0,
-              required: true,
-            },
-          ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? seq("PR"),
-            date: e?.date ?? "08/11/2026",
-            by: e?.by ?? "Dara Pich",
-            source: e?.source ?? "Manual",
-            items: String(v.items),
-            value: Number(v.value),
-            status: e?.status ?? "Submitted",
-          })}
-          extraActions={(r, update) => [
-            {
-              label: "Approve",
-              icon: CheckCircle2,
-              hidden: () => r.status !== "Submitted",
-              onClick: () => {
-                update({ status: "Approved" })
-                toast.success(`${r.id} approved`)
-              },
-            },
-            {
-              label: "Convert to PO",
-              icon: Send,
-              hidden: () => r.status !== "Approved",
-              onClick: () => {
-                setOrders((o) => [
-                  {
-                    id: seq("PO"),
-                    supplier: "Golden Grain Co.",
-                    date: "08/11/2026",
-                    delivery: "10/11/2026",
-                    total: r.value,
-                    status: "Draft",
-                    by: "Malis Som",
-                    received: 0,
-                  },
-                  ...o,
-                ])
-                setTab("orders")
-                toast.success("Draft purchase order created")
-              },
-            },
-            {
-              label: "Reject",
-              icon: XCircle,
-              destructive: true,
-              hidden: () => r.status !== "Submitted",
-              onClick: () =>
-                confirmAction({
-                  title: `Reject ${r.id}?`,
-                  effect: "The requester is notified.",
-                  requireReason: true,
-                  destructive: true,
-                  confirmLabel: "Reject",
-                  onConfirm: () => update({ status: "Rejected" }),
-                }),
-            },
+          rowActions={(r) => [
+            { label: "Approve", icon: Check, hidden: () => r.status !== "Submitted" || !can(me, "purchases.approve"), onClick: () => run(() => pur.decideRequest(r.id, true), `${r.request_no} approved`) },
+            { label: "Reject", icon: X, destructive: true, hidden: () => r.status !== "Submitted" || !can(me, "purchases.approve"), onClick: () => run(() => pur.decideRequest(r.id, false), `${r.request_no} rejected`) },
+            { label: "Create purchase order", icon: FileText, hidden: () => r.status !== "Approved" || !can(me, "purchases.create"), onClick: () => setDialog({ kind: "po", request: r }) },
           ]}
         />
       )}
       {tab === "orders" && (
         <DataTable
-          rows={orders}
+          rows={pos.data.map((p) => ({
+            ...p,
+            supplier: supName(p.supplier_id),
+            location: locName(p.location_id),
+            items: items(p.lines, (l: pur.PO["lines"][number]) => l.qty_ordered),
+            amount: num(p.total),
+            state: label(p.status),
+          }))}
           exportName="purchase-orders"
-          filters={[
-            {
-              key: "status",
-              label: "Status",
-              options: [
-                "Draft",
-                "Submitted",
-                "Approved",
-                "Sent",
-                "Partially Received",
-                "Received",
-                "Closed",
-                "Cancelled",
-              ],
-            },
-            { key: "supplier", label: "Supplier", options: supplierNames },
-          ]}
-          toolbar={
-            <Button
-              onClick={() => {
-                setOrders((o) => [
-                  {
-                    id: seq("PO"),
-                    supplier: "Golden Grain Co.",
-                    date: "08/11/2026",
-                    delivery: "12/11/2026",
-                    total: 0,
-                    status: "Draft",
-                    by: "Dara Pich",
-                    received: 0,
-                  },
-                  ...o,
-                ])
-                toast.success("Draft purchase order created")
-              }}
-            >
-              New purchase order
-            </Button>
-          }
+          emptyTitle="No purchase orders"
+          filters={[{ key: "state", label: "Status" }, { key: "supplier", label: "Supplier" }]}
           columns={[
-            {
-              key: "id",
-              header: "PO",
-              render: (r) => <span className="font-medium">{r.id}</span>,
-            },
+            { key: "po_no", header: "PO" },
             { key: "supplier", header: "Supplier" },
-            { key: "date", header: "Date" },
-            { key: "delivery", header: "Delivery" },
-            {
-              key: "total",
-              header: "Total",
-              align: "right",
-              render: (r) => usd(r.total),
-            },
-            { key: "by", header: "Created by", hidden: true },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => (
-                <StatusBadge
-                  status={r.status === "Sent" ? "Sent to Supplier" : r.status}
-                />
-              ),
-            },
+            { key: "location", header: "Deliver to" },
+            { key: "delivery_date", header: "Delivery", render: (p) => p.delivery_date ?? "—" },
+            { key: "items", header: "Items" },
+            { key: "amount", header: "Total", align: "right", render: (p) => usd(p.amount) },
+            { key: "state", header: "Status", render: (p) => <StatusBadge status={p.state} /> },
           ]}
-          rowActions={(r) => [
-            {
-              label: "Submit for approval",
-              icon: Send,
-              hidden: () => r.status !== "Draft",
-              onClick: () => patch(r.id, "Submitted"),
-            },
-            {
-              label: "Approve",
-              icon: ShieldCheck,
-              hidden: () => r.status !== "Submitted",
-              onClick: () =>
-                requestApproval({
-                  action: `Approve ${r.id}`,
-                  amount: usd(r.total),
-                  limit: usd(1000),
-                  onApproved: (by) => {
-                    patch(r.id, "Approved")
-                    toast.success(`Approved by ${by}`)
-                  },
-                }),
-            },
-            {
-              label: "Send to supplier",
-              icon: Send,
-              hidden: () => r.status !== "Approved",
-              onClick: () => {
-                patch(r.id, "Sent")
-                toast.success("Purchase order emailed to supplier")
-              },
-            },
-            {
-              label: "Download PDF",
-              icon: FileDown,
-              onClick: () =>
-                toast.info(`${r.id} PDF is generated by the backend`),
-            },
+          rowActions={(p) => [
+            { label: "Submit for approval", icon: Send, hidden: () => p.status !== "Draft", onClick: () => run(() => pur.poAction(p.id, "submit"), `${p.po_no} submitted`) },
+            { label: "Approve", icon: ShieldCheck, hidden: () => p.status !== "Submitted" || !can(me, "purchases.approve"), onClick: () => run(() => pur.poAction(p.id, "approve"), `${p.po_no} approved`) },
+            { label: "Mark sent to supplier", icon: Truck, hidden: () => p.status !== "Approved", onClick: () => run(() => pur.poAction(p.id, "send"), `${p.po_no} sent`) },
             {
               label: "Receive goods",
               icon: PackageCheck,
-              hidden: () => !["Sent", "Partially Received"].includes(r.status),
-              onClick: () => {
-                setReceived({})
-                setReceiving(r)
-              },
+              hidden: () => !["Approved", "Sent", "PartiallyReceived"].includes(p.status) || !can(me, "goods_receipts.post"),
+              onClick: () => setDialog({ kind: "receive", po: p }),
             },
             {
               label: "Cancel",
-              icon: XCircle,
+              icon: Ban,
               destructive: true,
-              hidden: () =>
-                ["Received", "Closed", "Cancelled"].includes(r.status),
+              hidden: () => !["Draft", "Submitted", "Approved", "Sent"].includes(p.status),
               onClick: () =>
                 confirmAction({
-                  title: `Cancel ${r.id}?`,
-                  effect: "The supplier should be told if it was already sent.",
+                  title: `Cancel ${p.po_no}?`,
+                  effect: "The supplier should be told separately. Cancelled orders stay on record.",
                   requireReason: true,
                   destructive: true,
-                  confirmLabel: "Cancel PO",
-                  onConfirm: () => patch(r.id, "Cancelled"),
+                  confirmLabel: "Cancel order",
+                  onConfirm: (reason) => run(() => pur.cancelPO(p.id, reason), `${p.po_no} cancelled`),
                 }),
             },
           ]}
@@ -318,278 +299,89 @@ export default function PurchasingPage() {
       )}
       {tab === "receipts" && (
         <DataTable
-          rows={goodsReceipts}
+          rows={grs.data.map((g) => ({
+            ...g,
+            po: pos.data.find((p) => p.id === g.po_id)?.po_no ?? (g.is_direct ? "Direct" : "—"),
+            supplier: supName(g.supplier_id),
+            items: items(g.lines, (l: pur.GR["lines"][number]) => l.qty_received),
+            value: num(g.total_value),
+            posted: when(g.posted_at) || "—",
+            state: label(g.status),
+          }))}
           exportName="goods-receipts"
+          emptyTitle="No goods receipts"
           columns={[
-            { key: "id", header: "Receipt" },
+            { key: "gr_no", header: "Receipt" },
             { key: "po", header: "PO" },
             { key: "supplier", header: "Supplier" },
-            { key: "date", header: "Date" },
-            {
-              key: "value",
-              header: "Value",
-              align: "right",
-              render: (r) => usd(r.value),
-            },
-            { key: "by", header: "Received by" },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => (
-                <StatusBadge
-                  status={posted.includes(r.id) ? "Posted" : r.status}
-                />
-              ),
-            },
+            { key: "items", header: "Items" },
+            { key: "value", header: "Value", align: "right", render: (g) => usd(g.value) },
+            { key: "posted", header: "Posted" },
+            { key: "exception_note", header: "Exception", render: (g) => g.exception_note ?? "—" },
+            { key: "state", header: "Status", render: (g) => <StatusBadge status={g.state} /> },
           ]}
-          rowActions={(r) => [
-            {
-              label: "Post to stock",
-              icon: PackageCheck,
-              hidden: () => r.status === "Posted" || posted.includes(r.id),
-              onClick: () =>
-                confirmAction({
-                  title: `Post ${r.id}?`,
-                  effect:
-                    "Stock and weighted average cost update once. Posting can't be repeated.",
-                  confirmLabel: "Post receipt",
-                  onConfirm: () => {
-                    setPosted((p) => [...p, r.id])
-                    toast.success("Posted to stock")
-                  },
-                }),
-            },
+          rowActions={(g) => [
+            { label: "Post to stock", icon: PackageCheck, hidden: () => g.status !== "Draft", onClick: () => run(() => pur.postGR(g.id), `${g.gr_no} posted`) },
+            { label: "Approve and post", icon: ShieldCheck, hidden: () => g.status !== "PendingApproval", onClick: () => run(() => pur.approveGR(g.id), `${g.gr_no} posted`) },
+            { label: "Return goods", icon: Undo2, hidden: () => g.status !== "Posted" || !can(me, "goods_receipts.post"), onClick: () => setDialog({ kind: "return", gr: g }) },
           ]}
         />
       )}
       {tab === "returns" && (
-        <CrudTable
-          noun="Purchase return"
-          canEdit={false}
-          seed={purchaseReturns}
+        <DataTable
+          rows={rets.data.map((r) => ({ ...r, supplier: supName(r.supplier_id), date: when(r.created_at), value: num(r.total_value) }))}
+          exportName="purchase-returns"
+          emptyTitle="No returns"
           columns={[
-            { key: "id", header: "Return" },
-            { key: "grn", header: "Receipt" },
-            { key: "supplier", header: "Supplier" },
+            { key: "return_no", header: "Return" },
             { key: "date", header: "Date" },
-            { key: "items", header: "Items" },
-            {
-              key: "value",
-              header: "Value",
-              align: "right",
-              render: (r) => usd(r.value),
-            },
+            { key: "gr_no", header: "From receipt" },
+            { key: "supplier", header: "Supplier" },
             { key: "reason", header: "Reason" },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
+            { key: "value", header: "Value", align: "right", render: (r) => usd(r.value) },
           ]}
-          fields={[
-            {
-              name: "grn",
-              label: "Goods receipt",
-              type: "select",
-              options: goodsReceipts.map((g) => g.id),
-              required: true,
-              half: true,
-            },
-            {
-              name: "supplier",
-              label: "Supplier",
-              type: "select",
-              options: supplierNames,
-              required: true,
-              half: true,
-            },
-            { name: "items", label: "Items and quantities", required: true },
-            {
-              name: "value",
-              label: "Value",
-              type: "number",
-              min: 0,
-              required: true,
-              half: true,
-            },
-            { name: "reason", label: "Reason", required: true, half: true },
-          ]}
-          toRow={(v) => ({
-            id: seq("RET"),
-            grn: String(v.grn),
-            supplier: String(v.supplier),
-            date: "08/11/2026",
-            items: String(v.items),
-            value: Number(v.value),
-            reason: String(v.reason),
-            status: "Posted",
-          })}
         />
       )}
       {tab === "invoices" && (
-        <CrudTable
-          noun="Supplier invoice"
-          canEdit={false}
-          seed={supplierInvoices}
-          filters={[
-            {
-              key: "status",
-              label: "Status",
-              options: ["Unpaid", "Partially Paid", "Paid"],
-            },
-            { key: "age", label: "Ageing" },
-          ]}
+        <DataTable
+          rows={invs.data.map((i) => ({
+            ...i,
+            supplier: supName(i.supplier_id),
+            amt: num(i.amount),
+            matched: i.matched_value === null ? null : num(i.matched_value),
+            outstanding: num(i.amount) - num(i.paid_amount),
+            match: label(i.match_status),
+            state: label(i.status),
+          }))}
+          exportName="supplier-invoices"
+          emptyTitle="No supplier invoices"
+          toolbar={can(me, "supplier_payments.create") && <Button onClick={() => setDialog({ kind: "invoice" })}>Record invoice</Button>}
           columns={[
-            { key: "id", header: "Invoice" },
+            { key: "invoice_no", header: "Invoice" },
             { key: "supplier", header: "Supplier" },
-            { key: "date", header: "Date" },
-            { key: "due", header: "Due" },
-            {
-              key: "amount",
-              header: "Amount",
-              align: "right",
-              render: (r) => usd(r.amount),
-            },
-            {
-              key: "paid",
-              header: "Paid",
-              align: "right",
-              render: (r) => usd(r.paid),
-            },
-            { key: "age", header: "Ageing" },
-            {
-              key: "match",
-              header: "Match",
-              render: (r) => <StatusBadge status={r.match} />,
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
+            { key: "invoice_date", header: "Date" },
+            { key: "due_date", header: "Due" },
+            { key: "amt", header: "Amount", align: "right", render: (i) => usd(i.amt) },
+            { key: "matched", header: "Received value", align: "right", render: (i) => (i.matched === null ? "—" : usd(i.matched)) },
+            { key: "match", header: "Match", render: (i) => <StatusBadge status={i.match} tone={i.match === "Matched" ? "success" : "warning"} /> },
+            { key: "outstanding", header: "Outstanding", align: "right", render: (i) => usd(i.outstanding) },
+            { key: "state", header: "Status", render: (i) => <StatusBadge status={i.state} /> },
           ]}
-          fields={[
-            {
-              name: "id",
-              label: "Invoice number",
-              required: true,
-              half: true,
-              validate: (v) =>
-                supplierInvoices.some((i) => i.id === v)
-                  ? "This invoice number already exists for the supplier"
-                  : undefined,
-            },
-            {
-              name: "supplier",
-              label: "Supplier",
-              type: "select",
-              options: supplierNames,
-              required: true,
-              half: true,
-            },
-            {
-              name: "amount",
-              label: "Amount",
-              type: "number",
-              min: 0,
-              required: true,
-              half: true,
-            },
-            {
-              name: "due",
-              label: "Due date (DD/MM/YYYY)",
-              required: true,
-              half: true,
-            },
-          ]}
-          toRow={(v) => ({
-            id: String(v.id),
-            supplier: String(v.supplier),
-            date: "08/11/2026",
-            due: String(v.due),
-            amount: Number(v.amount),
-            paid: 0,
-            match: "Pending",
-            status: "Unpaid",
-            age: "0–30 days",
-          })}
-          extraActions={(r, update) => [
-            {
-              label: "Record payment",
-              icon: Undo2,
-              hidden: () => r.status === "Paid",
-              onClick: () => {
-                update({ paid: r.amount, status: "Paid", age: "—" })
-                toast.success("Supplier payment recorded")
-              },
-            },
+          rowActions={(i) => [
+            { label: "Record payment", icon: CircleDollarSign, hidden: () => i.status === "Paid" || !can(me, "supplier_payments.create"), onClick: () => setDialog({ kind: "pay", invoice: i }) },
           ]}
         />
       )}
-      <Dialog open={!!receiving} onOpenChange={(o) => !o && setReceiving(null)}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Receive against {receiving?.id}</DialogTitle>
-            <DialogDescription>
-              {receiving?.supplier}. Quantities over 5% tolerance need approval.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="grid gap-2">
-            {poLines.map((l) => (
-              <li
-                key={l.name}
-                className="grid grid-cols-[1fr_auto_100px_120px] items-center gap-2 text-sm"
-              >
-                <span className="font-medium">{l.name}</span>
-                <span className="tabular text-xs text-muted-foreground">
-                  {l.ordered} {l.unit}
-                </span>
-                <Input
-                  aria-label={`${l.name} received`}
-                  inputMode="decimal"
-                  placeholder="Received"
-                  value={received[l.name] ?? ""}
-                  onChange={(e) =>
-                    setReceived({ ...received, [l.name]: e.target.value })
-                  }
-                />
-                <Input
-                  aria-label={`${l.name} batch`}
-                  placeholder="Batch / expiry"
-                />
-              </li>
-            ))}
-          </ul>
-          {over && (
-            <Notice tone="warning">
-              Over-receipt beyond tolerance. Approval will be requested.
-            </Notice>
-          )}
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                const r = receiving!
-                const finish = () => {
-                  const full = poLines.every(
-                    (l) => Number(received[l.name] || 0) >= l.ordered
-                  )
-                  patch(r.id, full ? "Received" : "Partially Received")
-                  setReceiving(null)
-                  toast.success("Goods receipt posted to stock")
-                }
-                if (over)
-                  requestApproval({
-                    action: `Over-receipt on ${r.id}`,
-                    onApproved: finish,
-                  })
-                else finish()
-              }}
-            >
-              Post receipt
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RecordDialog
+        open={!!dialog}
+        onOpenChange={(o) => !o && setDialog(null)}
+        title={title}
+        description={description}
+        fields={fields}
+        initial={d?.kind === "invoice" ? { date: today() } : d?.kind === "pay" ? { amount: String(num(d.invoice.amount) - num(d.invoice.paid_amount)), method: "BANK_TRANSFER" } : undefined}
+        onSubmit={onSubmit}
+        wide={d?.kind === "po" || d?.kind === "receive"}
+      />
     </Page>
   )
 }

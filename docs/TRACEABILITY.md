@@ -36,10 +36,10 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-MENU-002 | MENU | Must | The system shall allow authorised users to create menu items with code, Khmer and English names, descriptions,… | Done | AT-MENU-102 |
 | FR-MENU-003 | MENU | Must | The system shall support item variants (e.g., size or portion) each with its own price and optional recipe. | Done | AT-MENU-103 |
 | FR-MENU-004 | MENU | Must | The system shall support modifier groups with minimum and maximum selections, required or optional status, and… | Done, tested | AT-MENU-02 |
-| FR-MENU-005 | MENU | Should | The system shall support combo and set-menu items consisting of slots with eligible items and optional price a… | Not started | AT-MENU-104 |
+| FR-MENU-005 | MENU | Should | The system shall support combo and set-menu items consisting of slots with eligible items and optional price a… | Done, tested (tests/test_combos.py) | AT-MENU-104 |
 | FR-MENU-006 | MENU | Must | The system shall store prices per item variant, price list and branch with effective-from and effective-to tim… | Done, tested | AT-MENU-01, AT-MENU-04 |
 | FR-MENU-007 | MENU | Must | The system shall maintain a complete price history showing old price, new price, effective time, user and appr… | Done, tested | AT-MENU-01 |
-| FR-MENU-008 | MENU | Should | The system shall support time-based price lists (e.g., happy hour) and menu schedules by day of week, time win… | Not started | AT-MENU-105 |
+| FR-MENU-008 | MENU | Should | The system shall support time-based price lists (e.g., happy hour) and menu schedules by day of week, time win… | Done, tested (tests/test_price_lists_schedules.py) | AT-MENU-105 |
 | FR-MENU-009 | MENU | Must | The system shall allow kitchen and floor managers to mark an item or modifier unavailable for a branch until a… | Done, tested | AT-MENU-03 |
 | FR-MENU-010 | MENU | Must | The system shall copy item name, variant, modifiers, prices, tax profile and station to the order item when it… | Done, tested | AT-MENU-01 |
 | FR-MENU-011 | MENU | Must | The system shall prevent deletion of menu items that have been ordered; such items may only be deactivated. | Done | AT-MENU-106 |
@@ -150,7 +150,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-BILL-015 | BILL | Must | The system shall void an unfinalised payment entered in error within the same cashier session only with superv… | Done | AT-BILL-108 |
 | FR-BILL-016 | BILL | Should | The system shall handle electronic payments via provider integration where available, recording Pending, Confi… | Not started | AT-BILL-03, AT-BILL-05 |
 | FR-BILL-017 | BILL | Could | The system shall transfer an unpaid bill to an approved credit account within its credit limit and record sett… | Done, tested | AT-BILL-109 |
-| FR-BILL-018 | BILL | Should | The system shall provide a payment reconciliation view per business day comparing recorded electronic payments… | Not started | AT-BILL-110 |
+| FR-BILL-018 | BILL | Should | The system shall provide a payment reconciliation view per business day comparing recorded electronic payments… | Done, tested (tests/test_operations.py) | AT-BILL-110 |
 | FR-BILL-019 | BILL | Could | The system shall record tips separately from sales when tip recording is enabled. | Not started | AT-BILL-111 |
 | FR-BILL-020 | BILL | Should | The system shall issue credit notes for refunds where required by configuration (subject to V-02). | Not started | AT-BILL-112 |
 | FR-INV-001 | INV | Must | The system shall allow registering ingredients and stock items with code, Khmer and English names, category, s… | Done | AT-INV-101 |
@@ -202,7 +202,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-EXP-005 | EXP | Must | The system shall record cash paid-outs from an open cashier session as cash movements linked to the expense. | Done, tested | AT-EXP-02 |
 | FR-EXP-006 | EXP | Must | The system shall reverse paid expenses only with approval, retaining the original record. | Done | AT-EXP-103 |
 | FR-EXP-007 | EXP | Must | The system shall provide daily and monthly expense summaries by category, branch and payment method. | Done, tested | AT-EXP-104 |
-| FR-EXP-008 | EXP | Could | The system shall support recurring expense templates that generate draft expenses on a schedule. | Not started | AT-EXP-105 |
+| FR-EXP-008 | EXP | Could | The system shall support recurring expense templates that generate draft expenses on a schedule. | Done, tested (tests/test_operations.py) | AT-EXP-105 |
 | FR-EXP-009 | EXP | Must | The system shall store attachments securely with access only for permitted roles. | Done, tested | AT-EXP-106 |
 | FR-STAFF-001 | STAFF | Should | The system shall maintain employee profiles (name, Khmer name, employee code, department, position, branch, em… | Done, tested | AT-STAFF-101 |
 | FR-STAFF-002 | STAFF | Should | The system shall maintain departments and positions. | Done | AT-STAFF-102 |
@@ -267,7 +267,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-RPT-024 | RPT | Must | The system shall restrict each report by permission and branch scope and record exports of financial reports i… | Done, tested | AT-RPT-03 |
 | FR-RPT-025 | RPT | Should | The system shall run reports exceeding 10 seconds as background jobs and notify the user when ready. | Not started | AT-RPT-120 |
 | FR-RPT-026 | RPT | Should | The system shall produce a control exceptions report (RPT-26) listing self-approvals, forced session closures,… | Not started | AT-RPT-121 |
-| FR-RPT-027 | RPT | Could | The system shall allow scheduling reports for email delivery to permitted users. | Not started | AT-RPT-122 |
+| FR-RPT-027 | RPT | Could | The system shall allow scheduling reports for email delivery to permitted users. | Done, tested (tests/test_operations.py) | AT-RPT-122 |
 | FR-USER-001 | USER | Must | The system shall allow administrators to create and edit user accounts with name, username, email, phone, pref… | Done, tested | AT-USER-101 |
 | FR-USER-002 | USER | Must | The system shall allow activating and deactivating accounts, revoking all sessions on deactivation; accounts a… | Done, tested | AT-USER-102 |
 | FR-USER-003 | USER | Must | The system shall provide predefined roles (Section 4.1) and allow custom roles composed of permissions from th… | Done | AT-USER-103 |
@@ -292,7 +292,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-NOTIF-008 | NOTIF | Should | The system shall send emails (e.g., purchase orders, scheduled reports, password resets) through a configured … | Done | AT-NOTIF-106 |
 | FR-NOTIF-009 | NOTIF | Should | The system shall remind cashiers and managers of sessions still open after the scheduled shift end or day-end … | Not started | AT-NOTIF-107 |
 | FR-NOTIF-010 | NOTIF | Must | The system shall send system alerts for printer offline, KDS offline, synchronisation errors, backup failures … | Partial | AT-NOTIF-02 |
-| FR-NOTIF-011 | NOTIF | Could | The system shall allow users to configure which non-mandatory notifications they receive. | Not started | AT-NOTIF-108 |
+| FR-NOTIF-011 | NOTIF | Could | The system shall allow users to configure which non-mandatory notifications they receive. | Done, tested (tests/test_operations.py) | AT-NOTIF-108 |
 | FR-NOTIF-012 | NOTIF | Must | The system shall provide a notification centre with unread count, read/unread state and links to the related r… | Done | AT-NOTIF-109 |
 | FR-NOTIF-013 | NOTIF | Should | The system shall log external message deliveries with status and retry failed deliveries with exponential back… | Done, tested | AT-NOTIF-03 |
 | FR-CFG-001 | CFG | Must | The system shall maintain the restaurant profile (legal name, trade name in Khmer and English, address, phone,… | Not started | AT-CFG-101 |

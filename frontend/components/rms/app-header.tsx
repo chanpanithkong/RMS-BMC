@@ -1,5 +1,7 @@
 "use client"
 
+import { loadCurrent } from "@/lib/api/cash"
+import { markAllRead, markRead, useNotificationSync } from "@/lib/api/notifications"
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -72,16 +74,17 @@ export function NotificationBell() {
       <PopoverContent align="end" className="w-80 p-0">
         <div className="flex items-center justify-between border-b p-3">
           <p className="font-medium">Notifications</p>
-          <Button variant="ghost" size="xs" onClick={rms.markAllRead}>
+          <Button variant="ghost" size="xs" onClick={() => void markAllRead()}>
             Mark all read
           </Button>
         </div>
         <ul className="max-h-80 overflow-y-auto">
+          {notices.length === 0 && <li className="p-3 text-sm text-muted-foreground">No notifications.</li>}
           {notices.slice(0, 6).map((n) => (
             <li key={n.id} className="border-b last:border-0">
               <Link
                 href={n.href}
-                onClick={() => rms.markRead(n.id)}
+                onClick={() => void markRead(n.id)}
                 className={cn(
                   "block p-3 text-sm hover:bg-muted",
                   !n.read && "bg-accent/40"
@@ -207,7 +210,13 @@ export function AppHeader() {
   const router = useRouter()
   const [q, setQ] = React.useState("")
   const nav = navForPath(path)
-  const session = sessions.find((s) => s.status === "Open")
+  const session = sessions.find((s) => s.status === "Open" && s.mine)
+  useNotificationSync()
+  const myId = me?.id
+  // Keep the cashier-session indicator current as the user moves between pages.
+  React.useEffect(() => {
+    if (myId) loadCurrent(myId).catch(() => undefined)
+  }, [myId, path])
   const title = nav ? (lang === "km" ? nav.km : nav.en) : "Profile"
   const crumbs = path.split("/").filter(Boolean).slice(1)
 
@@ -284,7 +293,7 @@ export function AppHeader() {
           href="/shifts"
           className="hidden items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-muted md:flex"
           title={
-            session ? `Session ${session.id} open` : "No open cashier session"
+            session ? `Cashier session open (${session.cashier})` : "No open cashier session"
           }
         >
           <Wallet

@@ -87,6 +87,10 @@ PERMISSIONS: dict[str, tuple[str, str]] = {
     "credit.charge": ("BILL", "Charge a bill to a customer credit account"),
     "credit.settle": ("CUST", "Record payments against credit accounts"),
     "credit.approve": ("CUST", "Approve credit charges over the limit or on overdue accounts"),
+    # Phase 4
+    "payments.reconcile": ("BILL", "Reconcile electronic payments with bank or provider statements (FR-BILL-018)"),
+    "messages.view": ("NOTIF", "View the text message and email delivery log (FR-NOTIF-013)"),
+    "messages.retry": ("NOTIF", "Retry a failed text message or email"),
 }
 
 _VIEW_ALL = [p for p in PERMISSIONS if p.endswith(".view") or p in ("report.financial.view", "report.export", "audit.export", "orders.view_all")]
@@ -153,6 +157,10 @@ for _r, _p in {"OWNER": ["credit.manage", "credit.charge", "credit.settle", "cre
                "SUPV": ["credit.view", "credit.charge", "credit.settle"], "CASHIER": ["credit.view", "credit.charge", "credit.settle"]}.items():
     PHASE2_GRANTS.setdefault(_r, []).extend(_p)
 PHASE2_GRANTS["ACCT"].append("accounting.export")
+# Phase 4: the accountant reconciles (FR-BILL-018); managers can too. Delivery log for managers and administrators.
+for _r, _p in {"OWNER": ["payments.reconcile"], "GM": ["payments.reconcile", "messages.view", "messages.retry"], "ACCT": ["payments.reconcile"],
+               "BRMGR": ["payments.reconcile", "messages.view", "messages.retry"], "SYSADMIN": ["messages.view", "messages.retry"]}.items():
+    PHASE2_GRANTS.setdefault(_r, []).extend(_p)
 for role, extra in PHASE2_GRANTS.items():
     ROLE_GRANTS[role].extend(extra)
 ROLE_GRANTS["AUDITOR"].extend(p for p in ("customers.view", "reservations.view", "recipes.view", "suppliers.view", "purchases.view", "expenses.view", "employees.view", "promotions.view")

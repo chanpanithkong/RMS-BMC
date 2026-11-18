@@ -1,19 +1,9 @@
 "use client"
-// Front-end demo store. Every action here marks where a real API call belongs.
-// State is held in memory, so it resets when the page is fully reloaded.
+// Shared client state for the staff screens. Everything is loaded from the RMS API (lib/api/*) and starts
+// empty, so no sample data is ever shown. The older local actions below remain only for screens' internal
+// bookkeeping; changes that matter are always made through the API and then reloaded from the server.
 import { useSyncExternalStore } from "react"
-import {
-  categories as seedCategories,
-  menuItems as seedMenu,
-  modifierGroups,
-  seedNotices,
-  seedOrders,
-  seedReservations,
-  seedSessions,
-  seedTables,
-  seedWaitlist,
-  BUSINESS_DATE,
-} from "./seed"
+import { categories as seedCategories, modifierGroups, BUSINESS_DATE } from "./seed"
 import { calcBill, kitchenStatus } from "./billing"
 import type {
   BillSplit,
@@ -61,25 +51,28 @@ export interface RmsState {
 }
 
 const initial: RmsState = {
-  role: "GM",
-  roles: ["GM"],
-  userName: "Dara Pich",
+  // User, roles and branch are set from /auth/me when the session loads (lib/api/session.ts).
+  role: "WAITER",
+  roles: [],
+  userName: "",
   lang: "en",
-  branch: "Riverside",
+  branch: "",
   online: true,
-  orders: seedOrders,
-  tables: seedTables,
-  menu: seedMenu,
-  notices: seedNotices,
-  reservations: seedReservations,
-  waitlist: seedWaitlist,
-  sessions: seedSessions,
+  orders: [],
+  tables: [],
+  menu: [],
+  notices: [],
+  reservations: [],
+  waitlist: [],
+  sessions: [],
   onlinePaused: false,
   orderSeq: 110,
   receiptSeq: 4420,
   recalled: [],
 }
 
+seedCategories.splice(0, seedCategories.length)
+modifierGroups.splice(0, modifierGroups.length)
 let state = initial
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((l) => l())
@@ -692,6 +685,15 @@ export const rms = {
   },
   loadTables: (tables: FloorTable[]) => set({ tables }),
   loadSessions: (sessions: CashierSession[]) => set({ sessions }),
+  loadNotices: (notices: Notice[]) => set({ notices }),
+  /** Replace the signed-in user's open session (from the API), keeping other loaded sessions and dropping demo ones. */
+  setOwnSession: (own?: CashierSession) =>
+    set((s) => ({
+      sessions: [
+        ...(own ? [own] : []),
+        ...s.sessions.filter((x) => x.mine === false || (x.mine && x.status !== "Open" && x.id !== own?.id)),
+      ],
+    })),
   loadOrders: (orders: Order[]) =>
     set((s) => ({
       orders: orders.map((o) => {

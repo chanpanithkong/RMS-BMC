@@ -95,15 +95,22 @@ def public_menu(ctx: Ctx, channel: str) -> dict:
     for it in ctx.db.scalars(select(MenuItem).where(MenuItem.restaurant_id == ctx.branch.restaurant_id, MenuItem.is_active).order_by(MenuItem.code)):
         if not set(it.channels or []) & set(channels):
             continue
-        out = item_out(ctx, it, list_id)
+        out = item_out(ctx, it, list_id, channel, s.get("price_list"))
         if not out["available"] or not any(v["price"] is not None for v in out["variants"]):
             continue
-        items.append({k: out[k] for k in ("id", "code", "name_en", "name_km", "description", "category_id", "category_name_en", "image_url", "modifier_groups")}
+        items.append({k: out[k] for k in ("id", "code", "name_en", "name_km", "description", "category_id", "category_name_en", "image_url", "modifier_groups", "combo_slots")}
                      | {"variants": [v for v in out["variants"] if v["is_active"] and v["price"] is not None]})
     b = ctx.branch
     return {"branch": {"code": b.code, "name_en": b.name_en, "name_km": b.name_km, "address": b.address, "phone": b.phone, "opening_hours": b.opening_hours,
                        "open_now": is_open(b, utcnow())},
-            "lead_minutes": s.get("lead_minutes"), "min_order": s.get("min_order"), "max_qty_per_line": s.get("max_qty_per_line"), "items": items}
+            "lead_minutes": s.get("lead_minutes"), "min_order": s.get("min_order"), "max_qty_per_line": s.get("max_qty_per_line"), "items": items,
+            # Which payment choices checkout offers: KHQR only when a QR gateway is configured (FR-ONL-007)
+            "payment": {"online": _online_kind(), "pay_later": bool(s.get("pay_later_allowed", True))}}
+
+
+def _online_kind() -> str | None:
+    g = get_gateway()
+    return None if g is None else ("khqr" if getattr(g, "kind", "redirect") == "qr" else "redirect")
 
 
 # ---------------------------------------------------------------- checkout (FR-ONL-002..008, FR-ONL-012)

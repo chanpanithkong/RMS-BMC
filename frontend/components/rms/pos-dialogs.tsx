@@ -38,6 +38,7 @@ import { modifierGroups, useRms } from "@/lib/rms/store"
 import { loadBills, pay, report, splitBills } from "@/lib/api/pos"
 import { ApiError } from "@/lib/api/client"
 import type {
+  ComboPick,
   Discount,
   LineModifier,
   MenuItem,
@@ -69,10 +70,13 @@ export function ModifierDialog({
     qty: number
     note?: string
     allergy?: boolean
+    /** Combo items: the chosen item per slot. Their names are also listed in modifiers (without an id) for display. */
+    combo?: ComboPick[]
   }) => void
 }) {
   const [variant, setVariant] = React.useState<string>()
   const [picked, setPicked] = React.useState<Record<string, string[]>>({})
+  const [slotsPicked, setSlotsPicked] = React.useState<Record<string, string[]>>({})
   const [qty, setQty] = React.useState(1)
   const [note, setNote] = React.useState("")
   const [last, setLast] = React.useState<string>()
@@ -80,6 +84,14 @@ export function ModifierDialog({
     setLast(item.id)
     setVariant(item.variants?.[0].name)
     setPicked({})
+    setSlotsPicked(
+      Object.fromEntries(
+        (item.combo ?? []).map((s) => {
+          const open = s.options.filter((o) => o.available)
+          return [s.id, s.min === 1 && s.max === 1 && open.length === 1 ? [open[0].variantId] : []]
+        })
+      )
+    )
     setQty(1)
     setNote("")
   }
@@ -96,12 +108,28 @@ export function ModifierDialog({
       if (max === 1) return { ...p, [gid]: [mid] }
       return cur.length >= max ? p : { ...p, [gid]: [...cur, mid] }
     })
-  const ready = groups.every((g) => (picked[g.id]?.length ?? 0) >= g.min)
-  const mods = groups.flatMap((g) =>
-    g.modifiers
-      .filter((m) => picked[g.id]?.includes(m.id))
-      .map((m) => ({ id: m.id, name: m.name, delta: m.delta }))
+  const slots = item.combo ?? []
+  const toggleSlot = (sid: string, vid: string, max: number) =>
+    setSlotsPicked((p) => {
+      const cur = p[sid] ?? []
+      if (cur.includes(vid)) return { ...p, [sid]: cur.filter((x) => x !== vid) }
+      if (max === 1) return { ...p, [sid]: [vid] }
+      return cur.length >= max ? p : { ...p, [sid]: [...cur, vid] }
+    })
+  const comboChoices = slots.flatMap((s) =>
+    s.options.filter((o) => slotsPicked[s.id]?.includes(o.variantId)).map((o) => ({ slot: s, o }))
   )
+  const ready =
+    groups.every((g) => (picked[g.id]?.length ?? 0) >= g.min) &&
+    slots.every((s) => (slotsPicked[s.id]?.length ?? 0) >= s.min)
+  const mods = [
+    ...groups.flatMap((g) =>
+      g.modifiers
+        .filter((m) => picked[g.id]?.includes(m.id))
+        .map((m) => ({ id: m.id, name: m.name, delta: m.delta }))
+    ),
+    ...comboChoices.map(({ slot, o }) => ({ name: `${slot.name}: ${o.name}`, delta: o.delta })),
+  ]
   const price =
     item.variants?.find((v) => v.name === variant)?.price ?? item.price
   const each = price + mods.reduce((s, m) => s + m.delta, 0)
@@ -114,7 +142,7 @@ export function ModifierDialog({
             <span className="font-normal text-muted-foreground">{item.km}</span>
           </DialogTitle>
           <DialogDescription>
-            Choose options, then add to the order.
+            {slots.length ? "Choose an item for each part of the set." : "Choose options, then add to the order."}
           </DialogDescription>
         </DialogHeader>
         {item.variants && (
@@ -139,6 +167,42 @@ export function ModifierDialog({
             </div>
           </fieldset>
         )}
+        {slots.map((s) => {
+          const count = slotsPicked[s.id]?.length ?? 0
+          return (
+            <fieldset key={s.id}>
+              <legend className="mb-1.5 flex w-full items-baseline gap-2 text-sm font-medium">
+                {s.name}
+                <span className="text-xs font-normal text-muted-foreground">
+                  {s.min > 0
+                    ? `choose ${s.min === s.max ? s.min : `${s.min}–${s.max}`}`
+                    : `optional · up to ${s.max}`}
+                </span>
+                {s.min > 0 && count < s.min && (
+                  <span className="ml-auto text-xs font-normal text-danger">Required</span>
+                )}
+              </legend>
+              <div className="flex flex-wrap gap-2">
+                {s.options.map((o) => {
+                  const on = slotsPicked[s.id]?.includes(o.variantId) ?? false
+                  return (
+                    <button
+                      key={o.variantId}
+                      className={cn(chip(on), !o.available && "opacity-50")}
+                      aria-pressed={on}
+                      disabled={!o.available}
+                      onClick={() => toggleSlot(s.id, o.variantId, s.max)}
+                    >
+                      {o.name}
+                      {o.delta > 0 && ` +${usd(o.delta)}`}
+                      {!o.available && " · sold out"}
+                    </button>
+                  )
+                })}
+              </div>
+            </fieldset>
+          )
+        })}
         {groups.map((g) => {
           const count = picked[g.id]?.length ?? 0
           return (
@@ -200,6 +264,9 @@ export function ModifierDialog({
                 qty,
                 note: note || undefined,
                 allergy: /allerg/i.test(note),
+                combo: slots.length
+                  ? comboChoices.map(({ slot, o }) => ({ slot_id: slot.id, variant_id: o.variantId }))
+                  : undefined,
               })
             }
           >

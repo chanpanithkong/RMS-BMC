@@ -14,22 +14,31 @@ import {
   Panel,
   KV,
 } from "@/components/rms/kit"
+import { api } from "@/lib/api/client"
+import { loadTables } from "@/lib/api/pos"
+import { can, useSession } from "@/lib/api/session"
+import { act, save, useApi } from "@/lib/api/use-api"
 import { rms, useRms } from "@/lib/rms/store"
-import type { FloorTable } from "@/lib/rms/types"
 import { cn } from "@/lib/utils"
 
 export default function FloorEditorPage() {
   const { tables } = useRms()
-  const areas = [...new Set(tables.map((t) => t.area))]
-  const [extra, setExtra] = React.useState<string[]>([])
-  const allAreas = [...areas, ...extra.filter((e) => !areas.includes(e))]
-  const [area, setArea] = React.useState("Indoor")
+  const { me } = useSession()
+  const manage = can(me, "tables.manage")
+  // Dining areas and tables come from the server; positions are saved when a drag ends.
+  const areaList = useApi(() => api<{ id: string; name: string; sort_order: number; is_active: boolean }[]>("GET", "/dining-areas"), [], [])
+  const reloadTables = React.useCallback(() => void loadTables().catch(() => undefined), [])
+  React.useEffect(reloadTables, [reloadTables])
+  const allAreas = areaList.data.filter((a) => a.is_active).map((a) => a.name)
+  const areaId = (name: unknown) => areaList.data.find((a) => a.name === name)?.id
+  const [picked, setArea] = React.useState("")
+  const area = allAreas.includes(picked) ? picked : (allAreas[0] ?? "")
   const [selId, setSelId] = React.useState<string | null>(null)
   const [dialog, setDialog] = React.useState<"table" | "area" | "edit" | null>(
     null
   )
   const canvas = React.useRef<HTMLDivElement>(null)
-  const drag = React.useRef<{ id: string; dx: number; dy: number } | null>(null)
+  const drag = React.useRef<{ id: string; dx: number; dy: number; moved?: boolean } | null>(null)
   const sel = tables.find((t) => t.id === selId)
   const fields: Field[] = [
     {
@@ -83,6 +92,15 @@ export default function FloorEditorPage() {
     )
     const t = tables.find((f) => f.id === drag.current!.id)
     if (t) rms.saveTable({ ...t, x: Math.round(x), y: Math.round(y) })
+    drag.current.moved = true
+  }
+  /** Save the new position once; a stale version (someone else edited) shows the server's message. */
+  const drop = () => {
+    const d = drag.current
+    drag.current = null
+    if (!d?.moved) return
+    const t = tables.find((f) => f.id === d.id)
+    if (t) void act(() => api("PATCH", `/tables/${t.id}`, { body: { layout_x: String(t.x), layout_y: String(t.y), version: t.version } }), undefined, reloadTables)
   }
   return (
     <Page>
@@ -94,11 +112,11 @@ export default function FloorEditorPage() {
             <LinkButton href="/tables" variant="outline">
               Done
             </LinkButton>
-            <Button variant="outline" onClick={() => setDialog("area")}>
+            <Button variant="outline" disabled={!manage} onClick={() => setDialog("area")}>
               <Plus />
               New area
             </Button>
-            <Button onClick={() => setDialog("table")}>
+            <Button disabled={!manage || !allAreas.length} onClick={() => setDialog("table")}>
               <Plus />
               New table
             </Button>
@@ -124,7 +142,7 @@ export default function FloorEditorPage() {
           <div
             ref={canvas}
             onPointerMove={move}
-            onPointerUp={() => (drag.current = null)}
+            onPointerUp={drop}
             className="relative h-[520px] min-w-[780px] touch-none bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:20px_20px]"
           >
             {tables
@@ -134,6 +152,8 @@ export default function FloorEditorPage() {
                   key={t.id}
                   style={{ left: `${t.x}%`, top: `${t.y}%` }}
                   onPointerDown={(e) => {
+                    setSelId(t.id)
+                    if (!manage) return
                     const r = e.currentTarget.getBoundingClientRect()
                     drag.current = {
                       id: t.id,
@@ -141,7 +161,6 @@ export default function FloorEditorPage() {
                       dy: e.clientY - r.top,
                     }
                     e.currentTarget.setPointerCapture(e.pointerId)
-                    setSelId(t.id)
                   }}
                   className={cn(
                     "absolute flex cursor-grab flex-col items-center justify-center border-2 bg-background font-bold active:cursor-grabbing",
@@ -178,12 +197,14 @@ export default function FloorEditorPage() {
                 <Button
                   variant="outline"
                   className="flex-1"
+                  disabled={!manage}
                   onClick={() => setDialog("edit")}
                 >
                   Edit
                 </Button>
                 <Button
                   variant="destructive"
+                  disabled={!manage}
                   aria-label="Deactivate table"
                   onClick={() =>
                     confirmAction({
@@ -192,10 +213,11 @@ export default function FloorEditorPage() {
                         "It disappears from the floor plan. History is kept.",
                       destructive: true,
                       confirmLabel: "Deactivate",
-                      onConfirm: () => {
-                        rms.removeTable(sel.id)
-                        setSelId(null)
-                      },
+                      onConfirm: () =>
+                        void act(() => api("PATCH", `/tables/${sel.id}`, { body: { is_active: false, version: sel.version } }), `${sel.code} deactivated`, () => {
+                          setSelId(null)
+                          reloadTables()
+                        }),
                     })
                   }
                 >
@@ -227,28 +249,15 @@ export default function FloorEditorPage() {
             : { area, shape: "square", capacity: "4" }
         }
         onSubmit={(v) => {
-          const base: FloorTable =
+          const body = { table_code: String(v.code), capacity: Number(v.capacity), shape: v.shape, dining_area_id: areaId(v.area) }
+          return save(() =>
             dialog === "edit" && sel
-              ? sel
-              : {
-                  id: String(v.code),
-                  code: "",
-                  area,
-                  capacity: 4,
-                  shape: "square",
-                  x: 40,
-                  y: 40,
-                  state: "Available",
-                  guests: 0,
-                }
-          rms.saveTable({
-            ...base,
-            code: String(v.code),
-            capacity: Number(v.capacity),
-            shape: v.shape as FloorTable["shape"],
-            area: String(v.area),
+              ? api("PATCH", `/tables/${sel.id}`, { body: { ...body, version: sel.version } })
+              : api("POST", "/tables", { body: { ...body, layout_x: "40", layout_y: "40" } })
+          ).then(() => {
+            toast.success("Table saved")
+            reloadTables()
           })
-          toast.success("Table saved")
         }}
       />
       <RecordDialog
@@ -256,10 +265,12 @@ export default function FloorEditorPage() {
         onOpenChange={(o) => !o && setDialog(null)}
         title="New dining area"
         fields={[{ name: "name", label: "Area name", required: true }]}
-        onSubmit={(v) => {
-          setExtra((e) => [...e, String(v.name)])
-          setArea(String(v.name))
-        }}
+        onSubmit={(v) =>
+          save(() => api("POST", "/dining-areas", { body: { name: String(v.name), sort_order: areaList.data.length + 1 } })).then(() => {
+            areaList.reload()
+            setArea(String(v.name))
+          })
+        }
       />
     </Page>
   )

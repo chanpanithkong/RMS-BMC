@@ -1,5 +1,6 @@
 "use client"
 
+import { useLiveSync } from "@/lib/api/pos"
 import { kitchenStatus } from "@/lib/rms/billing"
 import { useRms } from "@/lib/rms/store"
 import type { Order } from "@/lib/rms/types"
@@ -37,6 +38,8 @@ function Column({
 
 export default function ReadyBoardPage() {
   const { orders } = useRms()
+  // Open orders from the server, updated live as the kitchen marks items ready.
+  useLiveSync()
   const takeaway = orders.filter(
     (o) =>
       o.type === "TAKEAWAY" &&

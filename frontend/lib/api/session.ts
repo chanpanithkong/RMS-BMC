@@ -81,6 +81,20 @@ export async function signIn(username: string, password: string): Promise<Me> {
   return loadMe()
 }
 
+/** Reload /auth/me after something that changes it (password changed, branch details edited). */
+export const reloadMe = () => loadMe()
+
+/**
+ * Quick user switch on a registered shared terminal (FR-USER-007): the device token identifies the terminal,
+ * the PIN the person. The backend refuses unregistered or revoked devices.
+ */
+export async function pinSignIn(deviceToken: string, username: string, pin: string): Promise<Me> {
+  const t = await api<{ access_token: string }>("POST", "/auth/pin-login", { body: { device_token: deviceToken, username, pin } })
+  setAccessToken(t.access_token)
+  restoring = null
+  return loadMe()
+}
+
 export async function signOut() {
   await logout()
   setAccessToken(null)

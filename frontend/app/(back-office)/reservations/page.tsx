@@ -2,18 +2,10 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import {
-  Ban,
-  BellRing,
-  Check,
-  Pencil,
-  Plus,
-  UserRoundCheck,
-  UserX,
-} from "lucide-react"
+import { Ban, BellRing, Pencil, Plus, UserRoundCheck, UserX } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { RecordDialog, newId, type Field } from "@/components/rms/crud"
+import { RecordDialog, type Field } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
 import { confirmAction } from "@/components/rms/dialog-host"
 import {
@@ -24,9 +16,9 @@ import {
   StatusBadge,
   useTab,
 } from "@/components/rms/kit"
-import { BUSINESS_DATE } from "@/lib/rms/seed"
-import { rms, useRms } from "@/lib/rms/store"
-import type { Reservation } from "@/lib/rms/types"
+import { api } from "@/lib/api/client"
+import { can, useSession } from "@/lib/api/session"
+import { act, apiMessage, save, useApi } from "@/lib/api/use-api"
 import { cn } from "@/lib/utils"
 
 const OPEN = 11,
@@ -38,6 +30,89 @@ const parse = (t: string) => {
   const [h, m] = t.split(":").map(Number)
   return h + (m >= 30 ? 0.5 : 0)
 }
+interface Reservation {
+  id: string
+  name: string
+  phone: string
+  party: number
+  date: string
+  start: number
+  duration: number
+  table?: string
+  tableIds: string[]
+  status: "Requested" | "Confirmed" | "Seated" | "Completed" | "Cancelled" | "No-show"
+  notes: string
+  version: number
+}
+interface ApiReservation {
+  id: string
+  guest_name: string
+  guest_phone: string | null
+  reserved_at: string
+  party_size: number
+  duration_minutes: number
+  status: string
+  notes: string | null
+  table_ids: string[]
+  version: number
+}
+interface Wait {
+  id: string
+  name: string
+  party: number
+  phone: string
+  added: string
+  quoted: number
+  status: string
+}
+interface Table {
+  id: string
+  table_code: string
+  capacity: number
+  is_out_of_service: boolean
+}
+
+/** Local date + "HH:MM" -> ISO time. */
+const at = (day: string, time: string) => new Date(`${day}T${time}`).toISOString()
+
+async function loadDay(day: string) {
+  const [rs, tables, waits] = await Promise.all([
+    api<ApiReservation[]>("GET", "/reservations", { query: { on: day } }),
+    api<Table[]>("GET", "/tables"),
+    api<{ id: string; party_name: string; party_size: number; phone: string | null; quoted_minutes: number | null; status: string; added_at: string }[]>("GET", "/waitlist", {
+      query: { include_closed: true },
+    }),
+  ])
+  const code = Object.fromEntries(tables.map((t) => [t.id, t.table_code]))
+  const reservations: Reservation[] = rs.map((r) => {
+    const d = new Date(r.reserved_at)
+    return {
+      id: r.id,
+      name: r.guest_name,
+      phone: r.guest_phone ?? "",
+      party: r.party_size,
+      date: d.toLocaleDateString("en-CA"),
+      start: d.getHours() + d.getMinutes() / 60,
+      duration: r.duration_minutes / 60,
+      table: r.table_ids.map((t) => code[t]).filter(Boolean).join("+") || undefined,
+      tableIds: r.table_ids,
+      status: (r.status === "NoShow" ? "No-show" : r.status) as Reservation["status"],
+      notes: r.notes ?? "",
+      version: r.version,
+    }
+  })
+  const waitlist: Wait[] = waits.map((w) => ({
+    id: w.id,
+    name: w.party_name,
+    party: w.party_size,
+    phone: w.phone ?? "",
+    added: new Date(w.added_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+    quoted: w.quoted_minutes ?? 0,
+    status: w.status,
+  }))
+  return { reservations, waitlist, tables }
+}
+
 const barTone: Record<Reservation["status"], string> = {
   Requested: "bg-warning-soft text-warning border-warning",
   Confirmed: "bg-info-soft text-info border-info",
@@ -48,8 +123,14 @@ const barTone: Record<Reservation["status"], string> = {
 }
 
 export default function ReservationsPage() {
-  const { reservations, waitlist, tables, userName } = useRms()
   const router = useRouter()
+  const { me } = useSession()
+  const manage = can(me, "reservations.manage")
+  const [day, setDay] = React.useState("")
+  const shownDay = day || me?.business_date || new Date().toLocaleDateString("en-CA")
+  const { data, reload } = useApi(() => loadDay(shownDay), [shownDay], { reservations: [] as Reservation[], waitlist: [] as Wait[], tables: [] as Table[] })
+  const { reservations, waitlist } = data
+  const tables = data.tables.map((t) => ({ id: t.id, code: t.table_code, capacity: t.capacity, outOfService: t.is_out_of_service }))
   const [tab, setTab] = useTab("timeline")
   const [edit, setEdit] = React.useState<Reservation | null>(null)
   const [open, setOpen] = React.useState(false)
@@ -69,21 +150,20 @@ export default function ReservationsPage() {
     reservations.find(
       (r) =>
         r.id !== id &&
-        r.table === table &&
+        (r.table ?? "").split("+").includes(table) &&
         !["Cancelled", "No-show", "Completed"].includes(r.status) &&
         start < r.start + r.duration &&
         r.start < start + duration
     )
   const fields: Field[] = [
     { name: "name", label: "Customer name", required: true, half: true },
-    { name: "phone", label: "Phone", type: "tel", required: true, half: true },
+    { name: "phone", label: "Phone", type: "tel", half: true },
     {
       name: "party",
       label: "Party size",
       type: "number",
       required: true,
       min: 1,
-      max: 20,
       half: true,
     },
     {
@@ -130,16 +210,16 @@ export default function ReservationsPage() {
     },
     { name: "notes", label: "Special requests", type: "textarea" },
   ]
-  const seat = (r: Reservation) => {
-    if (!r.table) {
-      toast.error("Assign a table first")
-      return
-    }
-    rms.setReservationStatus(r.id, "Seated")
-    rms.seat(r.table, r.party, userName.split(" ")[0])
-    toast.success(`${r.name} seated at ${r.table}`)
-    router.push(`/pos?table=${r.table}&guests=${r.party}`)
-  }
+  // The server checks capacity, table-time conflicts and status rules; its message is shown if it refuses.
+  const seat = (r: Reservation) =>
+    void act(
+      async () => {
+        const out = await api<{ order_id: string }>("POST", `/reservations/${r.id}/seat`)
+        router.push(`/pos?order=${out.order_id}`)
+      },
+      `${r.name} seated`,
+      reload
+    )
   const cancel = (r: Reservation) =>
     confirmAction({
       title: `Cancel ${r.name}'s reservation?`,
@@ -147,23 +227,14 @@ export default function ReservationsPage() {
       reasons: ["Customer request", "Duplicate", "Restaurant closed"],
       destructive: true,
       confirmLabel: "Cancel reservation",
-      onConfirm: () => {
-        rms.setReservationStatus(r.id, "Cancelled")
-        toast.success("Reservation cancelled")
-      },
+      onConfirm: (reason) => void act(() => api("POST", `/reservations/${r.id}/cancel`, { body: { reason } }), "Reservation cancelled", reload),
     })
   const actions = (r: Reservation) => [
     {
       label: "Seat now",
       icon: UserRoundCheck,
-      onClick: seat,
-      hidden: () => !["Confirmed", "Requested"].includes(r.status),
-    },
-    {
-      label: "Confirm",
-      icon: Check,
-      onClick: () => rms.setReservationStatus(r.id, "Confirmed"),
-      hidden: () => r.status !== "Requested",
+      onClick: () => seat(r),
+      hidden: () => !manage || !["Confirmed", "Requested"].includes(r.status),
     },
     {
       label: "Edit",
@@ -172,22 +243,27 @@ export default function ReservationsPage() {
         setEdit(x)
         setOpen(true)
       },
-      hidden: () => !["Confirmed", "Requested"].includes(r.status),
+      hidden: () => !manage || !["Confirmed", "Requested"].includes(r.status),
     },
     {
       label: "Mark no-show",
       icon: UserX,
-      onClick: () => rms.setReservationStatus(r.id, "No-show"),
-      hidden: () => r.status !== "Confirmed",
+      onClick: () => void act(() => api("POST", `/reservations/${r.id}/no-show`), `${r.name} marked as no-show`, reload),
+      hidden: () => !manage || !["Confirmed", "Requested"].includes(r.status),
     },
     {
       label: "Cancel",
       icon: Ban,
       destructive: true,
       onClick: cancel,
-      hidden: () => !["Confirmed", "Requested"].includes(r.status),
+      hidden: () => !manage || !["Confirmed", "Requested"].includes(r.status),
     },
   ]
+  const waitAction = (w: Wait, action: "notify" | "seat" | "left", done: string) =>
+    void act(() => api("POST", `/waitlist/${w.id}/${action}`), done, () => {
+      reload()
+      if (action === "seat") router.push("/tables")
+    })
   const waiting = waitlist.filter(
     (w) => w.status === "Waiting" || w.status === "Notified"
   )
@@ -195,14 +271,22 @@ export default function ReservationsPage() {
     <Page>
       <PageHeader
         title="Reservations"
-        description={`${BUSINESS_DATE}. Each table can hold only one reservation per time window.`}
+        description="Each table can hold only one reservation per time window."
         actions={
           <>
-            <Button variant="outline" onClick={() => setWaitOpen(true)}>
+            <input
+              type="date"
+              aria-label="Day"
+              className="h-9 rounded-md border bg-transparent px-2 text-sm"
+              value={shownDay}
+              onChange={(e) => setDay(e.target.value)}
+            />
+            <Button variant="outline" disabled={!manage} onClick={() => setWaitOpen(true)}>
               <Plus />
               Add to waiting list
             </Button>
             <Button
+              disabled={!manage}
               onClick={() => {
                 setEdit(null)
                 setTablePick(null)
@@ -261,6 +345,7 @@ export default function ReservationsPage() {
                       aria-label={`Reserve ${t.code} at ${fmt(s)}`}
                       className="border-l hover:bg-accent/40"
                       onClick={() => {
+                        if (!manage) return
                         setEdit(null)
                         setTablePick({ code: t.code, start: s })
                         setOpen(true)
@@ -269,7 +354,7 @@ export default function ReservationsPage() {
                   ))}
                   {reservations
                     .filter(
-                      (r) => r.table === t.code && r.status !== "Cancelled"
+                      (r) => r.tableIds.includes(t.id) && r.status !== "Cancelled"
                     )
                     .map((r) => {
                       const cell = `((100% - 72px) / ${slots.length})`
@@ -328,10 +413,7 @@ export default function ReservationsPage() {
                         size="icon-sm"
                         variant="outline"
                         aria-label={`Notify ${w.name}`}
-                        onClick={() => {
-                          rms.setWait(w.id, "Notified")
-                          toast.success(`${w.name} notified`)
-                        }}
+                        onClick={() => waitAction(w, "notify", `${w.name} notified`)}
                       >
                         <BellRing />
                       </Button>
@@ -339,10 +421,7 @@ export default function ReservationsPage() {
                       <Button
                         size="icon-sm"
                         aria-label={`Seat ${w.name}`}
-                        onClick={() => {
-                          rms.setWait(w.id, "Seated")
-                          router.push("/tables")
-                        }}
+                        onClick={() => waitAction(w, "seat", `${w.name} seated`)}
                       >
                         <UserRoundCheck />
                       </Button>
@@ -402,21 +481,21 @@ export default function ReservationsPage() {
             {
               label: "Notify",
               icon: BellRing,
-              onClick: () => rms.setWait(w.id, "Notified"),
-              hidden: () => w.status !== "Waiting",
+              onClick: () => waitAction(w, "notify", `${w.name} notified`),
+              hidden: () => !manage || w.status !== "Waiting",
             },
             {
               label: "Seat",
               icon: UserRoundCheck,
-              onClick: () => rms.setWait(w.id, "Seated"),
-              hidden: () => w.status === "Seated" || w.status === "Left",
+              onClick: () => waitAction(w, "seat", `${w.name} seated`),
+              hidden: () => !manage || w.status === "Seated" || w.status === "Left",
             },
             {
               label: "Mark left",
               icon: UserX,
               destructive: true,
-              onClick: () => rms.setWait(w.id, "Left"),
-              hidden: () => w.status === "Seated" || w.status === "Left",
+              onClick: () => waitAction(w, "left", `${w.name} marked as left`),
+              hidden: () => !manage || w.status === "Seated" || w.status === "Left",
             },
           ]}
           columns={[
@@ -457,20 +536,25 @@ export default function ReservationsPage() {
                 time: tablePick ? fmt(tablePick.start) : "",
               }
         }
-        onSubmit={(v) => {
-          rms.saveReservation({
-            id: edit?.id ?? newId(),
-            name: String(v.name),
-            phone: String(v.phone),
-            party: Number(v.party),
-            date: BUSINESS_DATE,
-            start: parse(String(v.time)),
-            duration: Number(v.duration),
-            table: v.table ? String(v.table) : undefined,
-            status: edit?.status ?? "Confirmed",
-            notes: String(v.notes ?? ""),
-          })
+        onSubmit={async (v) => {
+          const table = tables.find((t) => t.code === v.table)
+          const body = {
+            guest_name: String(v.name),
+            guest_phone: String(v.phone ?? "") || null,
+            party_size: Number(v.party),
+            reserved_at: at(edit?.date ?? shownDay, String(v.time)),
+            duration_minutes: Math.round(Number(v.duration) * 60),
+            table_ids: table ? [table.id] : [],
+            notes: String(v.notes ?? "") || null,
+          }
+          try {
+            if (edit) await api("PATCH", `/reservations/${edit.id}`, { body })
+            else await api("POST", "/reservations", { body })
+          } catch (e) {
+            throw new Error(apiMessage(e))
+          }
           toast.success("Reservation saved")
+          reload()
         }}
       />
       <RecordDialog
@@ -492,24 +576,21 @@ export default function ReservationsPage() {
             name: "quoted",
             label: "Quoted wait (min)",
             type: "number",
-            required: true,
             half: true,
-            hint: "Estimated: 15 min",
+            hint: "Leave empty to estimate from current table turn times",
           },
         ]}
-        initial={{ quoted: "15" }}
-        onSubmit={(v) => {
-          rms.addWait({
-            id: newId(),
-            name: String(v.name),
-            party: Number(v.party),
-            phone: String(v.phone ?? ""),
-            added: "13:02",
-            quoted: Number(v.quoted),
-            status: "Waiting",
+        initial={{}}
+        onSubmit={(v) =>
+          save(() =>
+            api("POST", "/waitlist", {
+              body: { party_name: String(v.name), party_size: Number(v.party), phone: String(v.phone ?? "") || undefined, quoted_minutes: v.quoted ? Number(v.quoted) : undefined },
+            })
+          ).then(() => {
+            toast.success("Added to waiting list")
+            reload()
           })
-          toast.success("Added to waiting list")
-        }}
+        }
       />
     </Page>
   )

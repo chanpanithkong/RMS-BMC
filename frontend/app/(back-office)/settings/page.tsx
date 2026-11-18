@@ -1,1278 +1,640 @@
 "use client"
 
 import * as React from "react"
-import { Moon, ShieldCheck } from "lucide-react"
+import { Check, Download, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import {
-  CrudTable,
-  RecordForm,
-  newId,
-  validateFields,
-  type Field,
-  type FieldValue,
-} from "@/components/rms/crud"
+import { RecordDialog } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
-import { confirmAction, requestApproval } from "@/components/rms/dialog-host"
-import {
-  Notice,
-  Page,
-  PageHeader,
-  Panel,
-  StatusBadge,
-  useTab,
-  SimpleSelect,
-  opts,
-} from "@/components/rms/kit"
-import { rms, useRms } from "@/lib/rms/store"
+import { confirmAction } from "@/components/rms/dialog-host"
+import { KV, Notice, Page, PageHeader, Panel, StatusBadge, useTab } from "@/components/rms/kit"
+import { SettingsForm, type SettingField } from "@/components/rms/settings-form"
+import { api, download, ApiError } from "@/lib/api/client"
+import { can, reloadMe, useSession } from "@/lib/api/session"
+import { act, apiMessage, num, save, useApi, when } from "@/lib/api/use-api"
 import { cn } from "@/lib/utils"
 
-const groups: { id: string; label: string }[] = [
-  { id: "restaurant", label: "Restaurant" },
-  { id: "modules", label: "Modules & profile" },
-  { id: "currencies", label: "Currencies & rates" },
-  { id: "taxes", label: "Taxes & service charges" },
-  { id: "receipts", label: "Receipts" },
-  { id: "numbering", label: "Numbering" },
-  { id: "service", label: "Service & dining" },
-  { id: "stations", label: "Stations & printers" },
+const groups = [
+  { id: "branch", label: "Branch details" },
+  { id: "features", label: "Features" },
+  { id: "currency", label: "Currency & rounding" },
+  { id: "taxes", label: "Tax & service charge" },
   { id: "payments", label: "Payment methods" },
-  { id: "languages", label: "Languages & format" },
-  { id: "inventory", label: "Inventory rules" },
-  { id: "limits", label: "Approval limits" },
-  { id: "notifications", label: "Notifications" },
-  { id: "devices", label: "Devices" },
-  { id: "dayend", label: "Day-end" },
+  { id: "operations", label: "Orders & kitchen" },
+  { id: "stations", label: "Kitchen stations" },
+  { id: "cash", label: "Cash control" },
+  { id: "inventory", label: "Inventory & purchasing" },
+  { id: "reservations", label: "Reservations" },
+  { id: "messages", label: "Text messages" },
+  { id: "accounting", label: "Accounting export" },
+  { id: "dayend", label: "Day end" },
   { id: "history", label: "Change history" },
 ]
-const moduleList = [
-  "Tables",
-  "Reservations",
-  "Kitchen display",
-  "Customers",
-  "Inventory",
-  "Recipes",
-  "Purchasing",
-  "Expenses",
-  "Staff schedules",
-  "Delivery",
-  "Promotions",
-  "Loyalty",
-  "Multi-branch",
-  "Online ordering",
-]
-const profiles: Record<string, string[]> = {
-  "Small restaurant": ["Tables", "Kitchen display", "Inventory"],
-  "Full-service restaurant": [
-    "Tables",
-    "Reservations",
-    "Kitchen display",
-    "Customers",
-    "Inventory",
-    "Recipes",
-    "Purchasing",
-    "Expenses",
-    "Staff schedules",
-    "Promotions",
-  ],
-  "Café / coffee shop": [
-    "Kitchen display",
-    "Customers",
-    "Inventory",
-    "Recipes",
-    "Loyalty",
-  ],
-  "Fast-food restaurant": ["Kitchen display", "Inventory", "Promotions"],
-  "Food court stall": ["Kitchen display"],
-  "Takeaway-focused": ["Kitchen display", "Inventory", "Customers"],
-  "Delivery-focused": ["Kitchen display", "Delivery", "Customers"],
-  "Multi-branch business": [
-    "Tables",
-    "Reservations",
-    "Kitchen display",
-    "Customers",
-    "Inventory",
-    "Recipes",
-    "Purchasing",
-    "Expenses",
-    "Staff schedules",
-    "Promotions",
-    "Multi-branch",
-  ],
-}
 
-function GroupForm({
-  title,
-  description,
-  fields,
-  initial,
-  financial,
-}: {
-  title: string
-  description?: string
-  fields: Field[]
-  initial: Record<string, FieldValue>
-  financial?: boolean
-}) {
-  const [values, setValues] = React.useState(initial)
-  const [errors, setErrors] = React.useState<Record<string, string>>({})
-  const [dirty, setDirty] = React.useState(false)
-  const save = () => {
-    const e = validateFields(fields, values)
-    setErrors(e)
-    if (Object.keys(e).length) return
-    if (financial)
-      requestApproval({
-        action: `Change: ${title}`,
-        reason: "Takes effect at the chosen time",
-        onApproved: (by) => {
-          toast.success(`Approved by ${by}; before and after values recorded`)
-          setDirty(false)
-        },
-      })
-    else {
-      toast.success("Saved")
-      setDirty(false)
-    }
-  }
-  return (
-    <Panel title={title} description={description}>
-      {financial && (
-        <Notice tone="warning" className="mb-3">
-          Financial setting: saving creates a change request that needs
-          approval.
-        </Notice>
-      )}
-      <RecordForm
-        fields={fields}
-        values={values}
-        errors={errors}
-        setValue={(k, v) => {
-          setValues((s) => ({ ...s, [k]: v }))
-          setDirty(true)
-        }}
-      />
-      <div className="mt-4 flex items-center justify-end gap-2">
-        {dirty && <span className="text-xs text-warning">Unsaved changes</span>}
-        <Button onClick={save}>
-          {financial ? "Submit for approval" : "Save"}
-        </Button>
-      </div>
-    </Panel>
-  )
+interface TaxProfile {
+  id: string
+  code: string
+  name: string
+  is_active: boolean
+  rates: {
+    id: string
+    charge_kind: string
+    name: string
+    rate: string
+    base_rule: string
+    inclusive: boolean
+    applies_to_order_types: string[]
+    valid_from: string | null
+    valid_to: string | null
+    verified?: boolean
+  }[]
 }
 
 export default function SettingsPage() {
-  const [tab, setTab] = useTab("restaurant")
-  const { orders, sessions } = useRms()
-  const [enabled, setEnabled] = React.useState<string[]>(
-    profiles["Full-service restaurant"]
-  )
-  const [profile, setProfile] = React.useState("Full-service restaurant")
-  const openOrders = orders.filter((o) => o.status === "Open").length
-  const openSessions = sessions.filter((s) => s.status === "Open").length
+  const { me } = useSession()
+  const [tab, setTab] = useTab("branch")
   return (
     <Page>
-      <PageHeader
-        title="Settings"
-        description="Restaurant and branch configuration. All changes are recorded with before and after values."
-      />
+      <PageHeader title="Settings" description="Restaurant and branch configuration. Every change is recorded with its before and after values." />
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[210px_1fr]">
-        <nav
-          aria-label="Settings groups"
-          className="flex gap-1 overflow-x-auto lg:sticky lg:top-18 lg:flex-col"
-        >
+        <nav aria-label="Settings groups" className="flex gap-1 overflow-x-auto lg:sticky lg:top-18 lg:flex-col">
           {groups.map((g) => (
             <button
               key={g.id}
               aria-current={tab === g.id ? "page" : undefined}
               onClick={() => setTab(g.id)}
-              className={cn(
-                "shrink-0 rounded-md px-2.5 py-1.5 text-left text-sm",
-                tab === g.id
-                  ? "bg-accent font-medium text-accent-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-              )}
+              className={cn("shrink-0 rounded-md px-2.5 py-1.5 text-left text-sm", tab === g.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-muted")}
             >
               {g.label}
             </button>
           ))}
         </nav>
         <div className="grid min-w-0 gap-4">
-          {tab === "restaurant" && (
-            <GroupForm
-              title="Restaurant profile"
-              initial={{
-                legal: "RMS Demo Restaurant Co., Ltd.",
-                en: "RMS Demo Restaurant",
-                km: "ភោជនីយដ្ឋានសាកល្បង",
-                address: "Sisowath Quay, Phnom Penh",
-                phone: "023 100 100",
-                tin: "",
-              }}
-              fields={[
-                { name: "legal", label: "Legal name", required: true },
-                {
-                  name: "en",
-                  label: "Trade name (English)",
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "km",
-                  label: "Trade name (Khmer)",
-                  required: true,
-                  half: true,
-                },
-                { name: "address", label: "Address", required: true },
-                { name: "phone", label: "Phone", type: "tel", half: true },
-                { name: "tin", label: "Tax ID (if applicable)", half: true },
-                { name: "logo", label: "Logo", type: "file" },
-              ]}
-            />
-          )}
-          {tab === "modules" && (
-            <Panel
-              title="Modules"
-              description="Apply a business-type profile, then fine-tune."
-            >
-              <div className="max-w-sm">
-                <SimpleSelect
-                  aria-label="Business type"
-                  value={profile}
-                  onChange={(p) => {
-                    setProfile(p)
-                    setEnabled(profiles[p])
-                    toast.success(`${p} profile applied`)
-                  }}
-                  options={opts(...Object.keys(profiles))}
-                />
-              </div>
-              <ul className="mt-4 grid gap-x-6 sm:grid-cols-2">
-                {moduleList.map((m) => (
-                  <li
-                    key={m}
-                    className="flex items-center justify-between border-b py-2 text-sm"
-                  >
-                    {m}
-                    <Switch
-                      aria-label={m}
-                      checked={enabled.includes(m)}
-                      onCheckedChange={(c) =>
-                        setEnabled(
-                          c ? [...enabled, m] : enabled.filter((x) => x !== m)
-                        )
-                      }
-                    />
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
-          {tab === "currencies" && (
+          {!can(me, "settings.manage") && <Notice tone="info">You can view settings. Changing them needs the settings permission.</Notice>}
+          {tab === "branch" && <BranchDetails />}
+          {tab === "features" && (
             <>
-              <GroupForm
-                financial
-                title="Base currency and rounding"
-                description="Illustrative values."
-                initial={{ base: "USD", usdDec: "2", khrDec: "0", inc: "100" }}
+              <SettingsForm group="online" title="Online ordering" fields={[{ name: "enabled", label: "Customers can order online", type: "switch" }, { name: "auto_accept", label: "Accept online orders automatically", type: "switch" }]} />
+              <SettingsForm group="qr" title="Table QR ordering" fields={[{ name: "enabled", label: "Guests can order from the table QR code", type: "switch" }, { name: "require_staff_confirmation", label: "Staff confirm QR orders before the kitchen sees them", type: "switch" }]} />
+              <SettingsForm group="loyalty" title="Loyalty" fields={[{ name: "enabled", label: "Customers earn and redeem points", type: "switch" }]} description="Rules are under Promotions → Loyalty." />
+              <SettingsForm group="credit" title="Customer credit accounts" fields={[{ name: "enabled", label: "Bills can be charged to credit accounts", type: "switch" }, { name: "default_terms_days", label: "Default payment terms (days)", type: "number", min: 0, asNumber: true }]} />
+              <SettingsForm
+                group="grabfood"
+                title="GrabFood"
+                description="Orders arrive automatically once Grab gives partner access. The commission rate is only used for estimates before settlement."
                 fields={[
-                  {
-                    name: "base",
-                    label: "Base currency",
-                    type: "select",
-                    options: ["USD", "KHR"],
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "inc",
-                    label: "KHR cash rounding increment",
-                    type: "number",
-                    min: 1,
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "usdDec",
-                    label: "USD decimals",
-                    type: "number",
-                    min: 0,
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "khrDec",
-                    label: "KHR decimals",
-                    type: "number",
-                    min: 0,
-                    required: true,
-                    half: true,
-                  },
+                  { name: "enabled", label: "Receive GrabFood orders", type: "switch" },
+                  { name: "merchant_id", label: "Grab merchant ID", half: true },
+                  { name: "commission_rate", label: "Commission rate (e.g. 0.25 = 25%)", type: "number", min: 0, max: 1, half: true },
                 ]}
-              />
-              <CrudTable
-                noun="Exchange rate"
-                canEdit={false}
-                seed={[
-                  {
-                    id: "1",
-                    rate: 4100,
-                    from: "01/11/2026 00:00",
-                    source: "Manual",
-                    user: "Sreyleak Mao",
-                    status: "Active",
-                  },
-                  {
-                    id: "2",
-                    rate: 4080,
-                    from: "01/10/2026 00:00",
-                    source: "Manual",
-                    user: "Sreyleak Mao",
-                    status: "Expired",
-                  },
-                ]}
-                columns={[
-                  { key: "rate", header: "KHR per USD", align: "right" },
-                  { key: "from", header: "Effective from" },
-                  { key: "source", header: "Source" },
-                  { key: "user", header: "Set by" },
-                  {
-                    key: "status",
-                    header: "Status",
-                    render: (r) => <StatusBadge status={r.status} />,
-                  },
-                ]}
-                fields={[
-                  {
-                    name: "rate",
-                    label: "KHR per USD",
-                    type: "number",
-                    min: 1,
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "from",
-                    label: "Effective from",
-                    required: true,
-                    half: true,
-                  },
-                  { name: "source", label: "Source", required: true },
-                ]}
-                description="New rates need approval before their effective time."
-                toRow={(v) => ({
-                  id: newId(),
-                  rate: Number(v.rate),
-                  from: String(v.from),
-                  source: String(v.source),
-                  user: "Dara Pich",
-                  status: "Pending Approval",
-                })}
               />
             </>
           )}
-          {tab === "taxes" && (
+          {tab === "currency" && <Currency />}
+          {tab === "taxes" && <Taxes />}
+          {tab === "payments" && <PaymentMethods />}
+          {tab === "operations" && (
             <>
-              <Notice tone="warning">
-                Rates are placeholders until verified against current official
-                Cambodian sources (V-01, D-03).
-              </Notice>
-              <CrudTable
-                noun="Tax profile"
-                seed={[
-                  {
-                    id: "1",
-                    name: "VAT Standard",
-                    kind: "Tax",
-                    rate: 10,
-                    base: "Subtotal + service",
-                    mode: "Exclusive",
-                    applies: "All order types",
-                    from: "01/01/2026",
-                    verified: "Unverified",
-                  },
-                  {
-                    id: "2",
-                    name: "Service charge",
-                    kind: "Service",
-                    rate: 5,
-                    base: "Discounted subtotal",
-                    mode: "Exclusive",
-                    applies: "Dine-in",
-                    from: "01/01/2026",
-                    verified: "Unverified",
-                  },
-                  {
-                    id: "3",
-                    name: "Tax inclusive",
-                    kind: "Tax",
-                    rate: 10,
-                    base: "Line amount",
-                    mode: "Inclusive",
-                    applies: "Online",
-                    from: "01/06/2026",
-                    verified: "Unverified",
-                  },
-                ]}
-                columns={[
-                  { key: "name", header: "Profile" },
-                  { key: "kind", header: "Type" },
-                  {
-                    key: "rate",
-                    header: "Rate",
-                    align: "right",
-                    render: (r) => `${r.rate}%`,
-                  },
-                  { key: "base", header: "Base" },
-                  { key: "mode", header: "Mode" },
-                  { key: "applies", header: "Applies to" },
-                  { key: "from", header: "Effective" },
-                  {
-                    key: "verified",
-                    header: "Verification",
-                    render: (r) => <StatusBadge status={r.verified} />,
-                  },
-                ]}
+              <SettingsForm
+                group="orders"
+                title="Orders"
                 fields={[
-                  { name: "name", label: "Name", required: true, half: true },
-                  {
-                    name: "kind",
-                    label: "Type",
-                    type: "select",
-                    options: ["Tax", "Service"],
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "rate",
-                    label: "Rate (%)",
-                    type: "number",
-                    min: 0,
-                    max: 99.99,
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "mode",
-                    label: "Mode",
-                    type: "select",
-                    options: ["Exclusive", "Inclusive"],
-                    required: true,
-                    half: true,
-                  },
-                  { name: "base", label: "Base", required: true, half: true },
-                  {
-                    name: "applies",
-                    label: "Applies to",
-                    required: true,
-                    half: true,
-                  },
-                  { name: "from", label: "Effective from", required: true },
+                  { name: "require_table_for_dine_in", label: "Dine-in orders need a table", type: "switch" },
+                  { name: "pay_first_order_types", label: "Pay before the kitchen starts (comma separated)", list: true, hint: "DineIn, Takeaway, Delivery" },
                 ]}
-                description="Changes need approval and take effect at the effective date."
-                toRow={(v, e) => ({
-                  id: e?.id ?? newId(),
-                  name: String(v.name),
-                  kind: String(v.kind),
-                  rate: Number(v.rate),
-                  base: String(v.base),
-                  mode: String(v.mode),
-                  applies: String(v.applies),
-                  from: String(v.from),
-                  verified: "Unverified",
-                })}
               />
+              <SettingsForm
+                group="kitchen"
+                title="Kitchen"
+                fields={[
+                  { name: "late_ticket_minutes", label: "A ticket is late after (minutes)", type: "number", min: 1, asNumber: true, half: true },
+                  { name: "printer_fallback_seconds", label: "Print a backup ticket if the screen hasn't seen it within (seconds)", type: "number", min: 1, asNumber: true, half: true },
+                ]}
+              />
+              <SettingsForm group="recipes" title="Food cost" fields={[{ name: "target_food_cost_pct", label: "Target food cost (%)", type: "number", min: 0, max: 100 }]} />
             </>
           )}
-          {tab === "receipts" && (
-            <GroupForm
-              title="Receipt template"
-              description="Required invoice fields are subject to verification (V-02)."
-              initial={{
-                language: "Khmer and English",
-                width: "80 mm",
-                header: "RMS Demo Restaurant",
-                footer: "Thank you / អរគុណ",
-                qr: true,
-                copies: "1",
-              }}
+          {tab === "stations" && <Stations />}
+          {tab === "cash" && (
+            <SettingsForm
+              group="cash"
+              title="Cash variance tolerance"
+              description="A closing count further from the expected amount than this needs a manager's approval. Financial setting: needs settings approval."
               fields={[
-                {
-                  name: "language",
-                  label: "Language",
-                  type: "select",
-                  options: ["Khmer", "English", "Khmer and English"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "width",
-                  label: "Paper width",
-                  type: "select",
-                  options: ["58 mm", "80 mm"],
-                  required: true,
-                  half: true,
-                },
-                { name: "header", label: "Header", required: true },
-                { name: "footer", label: "Footer" },
-                {
-                  name: "copies",
-                  label: "Copies",
-                  type: "number",
-                  min: 1,
-                  half: true,
-                },
-                {
-                  name: "qr",
-                  label: "Show QR receipt link",
-                  type: "switch",
-                  half: true,
-                },
-              ]}
-            />
-          )}
-          {tab === "numbering" && (
-            <CrudTable
-              noun="Numbering series"
-              canAdd={false}
-              seed={[
-                ["Orders", "#", "Daily"],
-                ["Receipts", "R-2026-", "Yearly"],
-                ["Invoices", "INV-", "Yearly"],
-                ["Credit notes", "CN-", "Yearly"],
-                ["Purchase orders", "PO-", "Never"],
-                ["Goods receipts", "GRN-", "Never"],
-              ].map(([series, prefix, reset], i) => ({
-                id: String(i),
-                series,
-                prefix,
-                reset,
-              }))}
-              columns={[
-                { key: "series", header: "Series" },
-                { key: "prefix", header: "Prefix" },
-                { key: "reset", header: "Reset" },
-              ]}
-              fields={[
-                { name: "prefix", label: "Prefix", required: true },
-                {
-                  name: "reset",
-                  label: "Reset",
-                  type: "select",
-                  options: ["Daily", "Yearly", "Never"],
-                  required: true,
-                },
-              ]}
-              toRow={(v, e) => ({
-                ...e!,
-                prefix: String(v.prefix),
-                reset: String(v.reset),
-              })}
-            />
-          )}
-          {tab === "service" && (
-            <GroupForm
-              title="Service model and dining"
-              initial={{
-                dine: "Pay later",
-                take: "Pay first",
-                del: "Pay first",
-                duration: "90",
-                hold: "15",
-                grace: "15",
-                buffer: "15",
-              }}
-              fields={[
-                {
-                  name: "dine",
-                  label: "Dine-in",
-                  type: "select",
-                  options: ["Pay later", "Pay first"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "take",
-                  label: "Takeaway",
-                  type: "select",
-                  options: ["Pay later", "Pay first"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "del",
-                  label: "Delivery",
-                  type: "select",
-                  options: ["Pay later", "Pay first"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "duration",
-                  label: "Default dining duration (min)",
-                  type: "number",
-                  min: 15,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "hold",
-                  label: "Reservation hold (min)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "grace",
-                  label: "No-show grace (min)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "buffer",
-                  label: "Buffer between bookings (min)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-              ]}
-            />
-          )}
-          {tab === "stations" && (
-            <>
-              <CrudTable
-                noun="Kitchen station"
-                seed={[
-                  ["Hot", 10, 20, "Printer 1"],
-                  ["Cold", 8, 15, "Printer 2"],
-                  ["Beverage", 5, 10, "Printer 3"],
-                  ["Dessert", 8, 15, "Printer 2"],
-                  ["Bar", 5, 10, "Printer 3"],
-                ].map(([name, warn, crit, backup], i) => ({
-                  id: String(i),
-                  name: String(name),
-                  warn: Number(warn),
-                  crit: Number(crit),
-                  backup: String(backup),
-                  status: "Online",
-                }))}
-                columns={[
-                  { key: "name", header: "Station" },
-                  { key: "warn", header: "Warning (min)", align: "right" },
-                  { key: "crit", header: "Critical (min)", align: "right" },
-                  { key: "backup", header: "Backup printer" },
-                  {
-                    key: "status",
-                    header: "KDS",
-                    render: (r) => <StatusBadge status={r.status} />,
-                  },
-                ]}
-                fields={[
-                  { name: "name", label: "Name", required: true },
-                  {
-                    name: "warn",
-                    label: "Warning (min)",
-                    type: "number",
-                    min: 1,
-                    required: true,
-                    half: true,
-                  },
-                  {
-                    name: "crit",
-                    label: "Critical (min)",
-                    type: "number",
-                    min: 1,
-                    required: true,
-                    half: true,
-                    validate: (v, a) =>
-                      Number(v) <= Number(a.warn)
-                        ? "Must be greater than warning"
-                        : undefined,
-                  },
-                  {
-                    name: "backup",
-                    label: "Backup printer",
-                    type: "select",
-                    options: ["Printer 1", "Printer 2", "Printer 3"],
-                    required: true,
-                  },
-                ]}
-                toRow={(v, e) => ({
-                  id: e?.id ?? newId(),
-                  name: String(v.name),
-                  warn: Number(v.warn),
-                  crit: Number(v.crit),
-                  backup: String(v.backup),
-                  status: e?.status ?? "Online",
-                })}
-              />
-              <CrudTable
-                noun="Printer"
-                seed={[
-                  {
-                    id: "p1",
-                    name: "Printer 1",
-                    kind: "Network",
-                    ip: "10.0.1.91",
-                    width: "80 mm",
-                    route: "Hot station",
-                    status: "Online",
-                  },
-                  {
-                    id: "p2",
-                    name: "Printer 2",
-                    kind: "Network",
-                    ip: "10.0.1.92",
-                    width: "80 mm",
-                    route: "Cold, Dessert",
-                    status: "Offline",
-                  },
-                  {
-                    id: "p3",
-                    name: "Printer 3",
-                    kind: "USB agent",
-                    ip: "POS-1",
-                    width: "58 mm",
-                    route: "Bar, Beverage",
-                    status: "Online",
-                  },
-                ]}
-                columns={[
-                  { key: "name", header: "Printer" },
-                  { key: "kind", header: "Connection" },
-                  { key: "ip", header: "Address" },
-                  { key: "width", header: "Paper" },
-                  { key: "route", header: "Routing" },
-                  {
-                    key: "status",
-                    header: "Status",
-                    render: (r) => <StatusBadge status={r.status} />,
-                  },
-                ]}
-                fields={[
-                  { name: "name", label: "Name", required: true, half: true },
-                  {
-                    name: "kind",
-                    label: "Connection",
-                    type: "select",
-                    options: ["Network", "USB agent"],
-                    required: true,
-                    half: true,
-                  },
-                  { name: "ip", label: "Address", required: true, half: true },
-                  {
-                    name: "width",
-                    label: "Paper width",
-                    type: "select",
-                    options: ["58 mm", "80 mm"],
-                    required: true,
-                    half: true,
-                  },
-                  { name: "route", label: "Routing", required: true },
-                ]}
-                toRow={(v, e) => ({
-                  id: e?.id ?? newId(),
-                  name: String(v.name),
-                  kind: String(v.kind),
-                  ip: String(v.ip),
-                  width: String(v.width),
-                  route: String(v.route),
-                  status: e?.status ?? "Online",
-                })}
-              />
-            </>
-          )}
-          {tab === "payments" && (
-            <CrudTable
-              noun="Payment method"
-              seed={[
-                ["Cash USD", "Cash", "USD", "No", "Yes"],
-                ["Cash KHR", "Cash", "KHR", "No", "Yes"],
-                ["KHQR", "QR", "USD, KHR", "Yes", "No"],
-                ["Bank Transfer", "Bank", "USD", "Yes", "No"],
-                ["Card", "Card terminal", "USD", "Yes", "No"],
-              ].map(([name, type, currency, reference, change], i) => ({
-                id: String(i),
-                name,
-                type,
-                currency,
-                reference,
-                change,
-                status: "Active",
-              }))}
-              columns={[
-                { key: "name", header: "Method" },
-                { key: "type", header: "Type" },
-                { key: "currency", header: "Currencies" },
-                { key: "reference", header: "Reference required" },
-                { key: "change", header: "Change allowed" },
-                {
-                  key: "status",
-                  header: "Status",
-                  render: (r) => <StatusBadge status={r.status} />,
-                },
-              ]}
-              fields={[
-                { name: "name", label: "Name", required: true, half: true },
-                {
-                  name: "type",
-                  label: "Type",
-                  type: "select",
-                  options: ["Cash", "QR", "Bank", "Card terminal"],
-                  required: true,
-                  half: true,
-                },
-                { name: "currency", label: "Currencies", required: true },
-                {
-                  name: "reference",
-                  label: "Reference required",
-                  type: "select",
-                  options: ["Yes", "No"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "change",
-                  label: "Change allowed",
-                  type: "select",
-                  options: ["Yes", "No"],
-                  required: true,
-                  half: true,
-                },
-              ]}
-              description="Changes need approval."
-              toRow={(v, e) => ({
-                id: e?.id ?? newId(),
-                name: String(v.name),
-                type: String(v.type),
-                currency: String(v.currency),
-                reference: String(v.reference),
-                change: String(v.change),
-                status: e?.status ?? "Active",
-              })}
-            />
-          )}
-          {tab === "languages" && (
-            <GroupForm
-              title="Languages and format"
-              initial={{
-                def: "Khmer",
-                date: "DD/MM/YYYY",
-                time: "24-hour",
-                tz: "Asia/Phnom_Penh",
-              }}
-              fields={[
-                {
-                  name: "def",
-                  label: "Default language",
-                  type: "select",
-                  options: ["Khmer", "English"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "date",
-                  label: "Date format",
-                  type: "select",
-                  options: ["DD/MM/YYYY", "YYYY-MM-DD"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "time",
-                  label: "Time format",
-                  type: "select",
-                  options: ["24-hour", "12-hour"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "tz",
-                  label: "Time zone",
-                  type: "select",
-                  options: ["Asia/Phnom_Penh"],
-                  required: true,
-                  half: true,
-                },
+                { name: "usd", path: "variance_tolerance.USD", label: "USD", type: "number", min: 0, half: true },
+                { name: "khr", path: "variance_tolerance.KHR", label: "KHR", type: "number", min: 0, half: true },
               ]}
             />
           )}
           {tab === "inventory" && (
-            <GroupForm
-              title="Inventory rules"
-              initial={{
-                point: "When sent to kitchen",
-                negative: "Allow and flag",
-                method: "Weighted average",
-                threshold: "25",
-                expiry: "3",
-              }}
-              fields={[
-                {
-                  name: "point",
-                  label: "Consumption point",
-                  type: "select",
-                  options: ["When sent to kitchen", "When ready", "When paid"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "negative",
-                  label: "Negative stock policy",
-                  type: "select",
-                  options: ["Allow and flag", "Block sale"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "method",
-                  label: "Valuation method",
-                  type: "select",
-                  options: ["Weighted average"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "threshold",
-                  label: "Adjustment approval over ($)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "expiry",
-                  label: "Expiry warning (days)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-              ]}
-            />
-          )}
-          {tab === "limits" && (
-            <CrudTable
-              noun="Approval limit"
-              canAdd={false}
-              seed={[
-                ["Supervisor", "20%", 10, 25, 0, 0],
-                ["Branch Manager", "30%", 50, 100, 1000, 300],
-                ["General Manager", "50%", 200, 500, 5000, 2000],
-                ["Owner", "100%", 9999, 9999, 99999, 99999],
-              ].map(([role, discount, voids, refunds, po, expense], i) => ({
-                id: String(i),
-                role: String(role),
-                discount: String(discount),
-                voids: Number(voids),
-                refunds: Number(refunds),
-                po: Number(po),
-                expense: Number(expense),
-              }))}
-              columns={[
-                { key: "role", header: "Role" },
-                { key: "discount", header: "Discount", align: "right" },
-                { key: "voids", header: "Void ($)", align: "right" },
-                { key: "refunds", header: "Refund ($)", align: "right" },
-                { key: "po", header: "PO ($)", align: "right" },
-                { key: "expense", header: "Expense ($)", align: "right" },
-              ]}
-              fields={[
-                {
-                  name: "discount",
-                  label: "Discount",
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "voids",
-                  label: "Void ($)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "refunds",
-                  label: "Refund ($)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "po",
-                  label: "PO ($)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "expense",
-                  label: "Expense ($)",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                },
-              ]}
-              description="Changes need approval."
-              toRow={(v, e) => ({
-                ...e!,
-                discount: String(v.discount),
-                voids: Number(v.voids),
-                refunds: Number(v.refunds),
-                po: Number(v.po),
-                expense: Number(v.expense),
-              })}
-            />
-          )}
-          {tab === "notifications" && (
-            <GroupForm
-              title="Notification channels"
-              description="Credentials are stored as secrets and are not shown after saving."
-              initial={{
-                sender: "noreply@example.com",
-                smsOn: false,
-                retry: "5",
-              }}
-              fields={[
-                {
-                  name: "sender",
-                  label: "Email sender",
-                  type: "email",
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "retry",
-                  label: "Retry limit",
-                  type: "number",
-                  min: 0,
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "apiKey",
-                  label: "Provider API key",
-                  hint: "Leave blank to keep the saved key",
-                },
-                {
-                  name: "smsOn",
-                  label: "Enable SMS and messaging",
-                  type: "switch",
-                },
-              ]}
-            />
-          )}
-          {tab === "devices" && (
-            <CrudTable
-              noun="Device"
-              seed={[
-                {
-                  id: "1",
-                  name: "POS-1",
-                  kind: "POS terminal",
-                  branch: "Riverside",
-                  seen: "Now",
-                  status: "Online",
-                },
-                {
-                  id: "2",
-                  name: "POS-2",
-                  kind: "POS terminal",
-                  branch: "Riverside",
-                  seen: "Now",
-                  status: "Online",
-                },
-                {
-                  id: "3",
-                  name: "KDS-1",
-                  kind: "KDS screen",
-                  branch: "Riverside",
-                  seen: "Now",
-                  status: "Online",
-                },
-                {
-                  id: "4",
-                  name: "KDS-2",
-                  kind: "KDS screen",
-                  branch: "Riverside",
-                  seen: "2 h ago",
-                  status: "Offline",
-                },
-                {
-                  id: "5",
-                  name: "Agent-1",
-                  kind: "Print agent",
-                  branch: "Riverside",
-                  seen: "Now",
-                  status: "Online",
-                },
-              ]}
-              filters={[{ key: "kind", label: "Type" }]}
-              columns={[
-                { key: "name", header: "Device" },
-                { key: "kind", header: "Type" },
-                { key: "branch", header: "Branch" },
-                { key: "seen", header: "Last seen" },
-                {
-                  key: "status",
-                  header: "Status",
-                  render: (r) => <StatusBadge status={r.status} />,
-                },
-              ]}
-              fields={[
-                { name: "name", label: "Name", required: true, half: true },
-                {
-                  name: "kind",
-                  label: "Type",
-                  type: "select",
-                  options: ["POS terminal", "KDS screen", "Print agent"],
-                  required: true,
-                  half: true,
-                },
-                {
-                  name: "branch",
-                  label: "Branch",
-                  type: "select",
-                  options: ["Riverside", "BKK1", "Siem Reap"],
-                  required: true,
-                },
-              ]}
-              extraActions={(d, update) => [
-                {
-                  label: "Revoke device",
-                  icon: ShieldCheck,
-                  destructive: true,
-                  onClick: () =>
-                    confirmAction({
-                      title: `Revoke ${d.name}?`,
-                      effect:
-                        "It must be registered again before it can connect.",
-                      destructive: true,
-                      confirmLabel: "Revoke",
-                      onConfirm: () => update({ status: "Revoked" }),
-                    }),
-                },
-              ]}
-              toRow={(v, e) => ({
-                id: e?.id ?? newId(),
-                name: String(v.name),
-                kind: String(v.kind),
-                branch: String(v.branch),
-                seen: e?.seen ?? "Never",
-                status: e?.status ?? "Online",
-              })}
-            />
-          )}
-          {tab === "dayend" && (
             <>
-              <GroupForm
-                title="Business day"
-                description="Sales after midnight count toward this business day until the end time."
-                initial={{ end: "04:00" }}
+              <SettingsForm
+                group="inventory"
+                title="Inventory"
                 fields={[
-                  {
-                    name: "end",
-                    label: "Business day ends at",
-                    type: "time",
-                    required: true,
-                  },
+                  { name: "consumption_point", label: "Ingredients are consumed when items are", type: "select", options: ["Send", "Ready", "Served"], half: true },
+                  { name: "expiry_warning_days", label: "Warn about expiry this many days ahead", type: "number", min: 0, asNumber: true, half: true },
+                  { name: "allow_negative_from_sales", label: "Sales may take stock below zero (flagged for review)", type: "switch" },
                 ]}
               />
-              <Panel title="Close business day 08/11/2026">
-                <ul className="grid gap-1.5 text-sm">
-                  <li className="flex justify-between">
-                    <span>Open orders</span>
-                    <StatusBadge
-                      status={`${openOrders} open`}
-                      tone={openOrders ? "warning" : "success"}
-                    />
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Open cashier sessions</span>
-                    <StatusBadge
-                      status={`${openSessions} open`}
-                      tone={openSessions ? "warning" : "success"}
-                    />
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Pending electronic payments</span>
-                    <StatusBadge status="1 pending" tone="warning" />
-                  </li>
-                </ul>
-                <Button
-                  className="mt-3"
-                  onClick={() =>
-                    confirmAction({
-                      title: "Close the business day with open items?",
-                      effect: `${openOrders} open orders and ${openSessions} open sessions will carry over. Your acknowledgement is recorded.`,
-                      requireReason: true,
-                      confirmLabel: "Acknowledge and close",
-                      onConfirm: () => {
-                        rms.markAllRead()
-                        toast.success("Business day closed")
-                      },
-                    })
-                  }
-                >
-                  <Moon />
-                  Run day-end close
-                </Button>
-              </Panel>
+              <SettingsForm
+                group="purchasing"
+                title="Purchasing"
+                fields={[
+                  { name: "receipt_tolerance_pct", label: "Over-receipt tolerance (%)", type: "number", min: 0, half: true },
+                  { name: "price_tolerance_pct", label: "Price difference tolerance (%)", type: "number", min: 0, half: true },
+                  { name: "invoice_tolerance", label: "Invoice matching tolerance (USD)", type: "number", min: 0, half: true },
+                  { name: "separate_receiver", label: "The person who orders can't receive the goods", type: "switch", half: true },
+                ]}
+              />
             </>
           )}
-          {tab === "history" && (
-            <DataTable
-              rows={[
-                {
-                  id: "1",
-                  time: "07/11/2026 18:44",
-                  setting: "VAT Standard rate",
-                  before: "10%",
-                  after: "10% effective 01/12/2026",
-                  user: "Sreyleak Mao",
-                  approver: "Vannak Keo",
-                },
-                {
-                  id: "2",
-                  time: "01/11/2026 09:00",
-                  setting: "Exchange rate",
-                  before: "4,080",
-                  after: "4,100",
-                  user: "Sreyleak Mao",
-                  approver: "Dara Pich",
-                },
-                {
-                  id: "3",
-                  time: "28/10/2026 10:12",
-                  setting: "Receipt footer",
-                  before: "Thank you",
-                  after: "Thank you / អរគុណ",
-                  user: "Sopheak Nou",
-                  approver: "—",
-                },
-              ]}
-              exportName="setting-history"
-              columns={[
-                { key: "time", header: "Time" },
-                { key: "setting", header: "Setting" },
-                { key: "before", header: "Before" },
-                { key: "after", header: "After" },
-                { key: "user", header: "Changed by" },
-                { key: "approver", header: "Approved by" },
+          {tab === "reservations" && (
+            <SettingsForm
+              group="reservations"
+              title="Reservations"
+              fields={(
+                [
+                  ["default_duration_minutes", "Default dining time (minutes)"],
+                  ["buffer_minutes", "Buffer between bookings (minutes)"],
+                  ["hold_minutes", "Hold the table before arrival (minutes)"],
+                  ["grace_minutes", "Grace period before no-show (minutes)"],
+                  ["max_party_size", "Largest party"],
+                  ["walkin_warning_minutes", "Warn before seating walk-ins this close to a booking (minutes)"],
+                ] as const
+              ).map(([name, label]): SettingField => ({ name, label, type: "number", min: 0, asNumber: true, half: true }))}
+            />
+          )}
+          {tab === "messages" && (
+            <SettingsForm
+              group="sms"
+              title="Text messages (PlasGate)"
+              description="Messages are sent only after the provider account is configured on the server."
+              fields={[
+                { name: "enabled", label: "Send text messages", type: "switch" },
+                { name: "order_updates", label: "Online order updates", type: "switch", half: true },
+                { name: "reservations", label: "Reservation confirmations and reminders", type: "switch", half: true },
+                { name: "reservation_reminder_minutes", label: "Reminder before the booking (minutes)", type: "number", min: 0, asNumber: true, half: true },
+                { name: "customer_session_days", label: "Customer sign-in lasts (days)", type: "number", min: 1, asNumber: true, half: true },
               ]}
             />
           )}
+          {tab === "accounting" && <Accounting />}
+          {tab === "dayend" && <DayEnd />}
+          {tab === "history" && <History />}
         </div>
       </div>
     </Page>
+  )
+}
+
+function BranchDetails() {
+  const { me } = useSession()
+  const b = me?.current_branch
+  const [open, setOpen] = React.useState(false)
+  // /auth/me has no day-end time; /branches does.
+  const list = useApi(() => api<{ id: string; day_end_time: string }[]>("GET", "/branches"), [], [])
+  const dayEnd = String(list.data.find((x) => x.id === b?.id)?.day_end_time ?? "").slice(0, 5)
+  if (!b) return null
+  return (
+    <Panel
+      title={b.name_en}
+      description="This branch. Other branches are managed under Branches."
+      actions={
+        can(me, "branches.manage") && (
+          <Button variant="outline" onClick={() => setOpen(true)}>
+            Edit
+          </Button>
+        )
+      }
+    >
+      <KV
+        items={[
+          ["Code", b.code],
+          ["Khmer name", b.name_km ?? "—"],
+          ["Time zone", b.timezone],
+          ["Business day ends", dayEnd || "—"],
+          ["Business day now", me.business_date],
+        ]}
+      />
+      <RecordDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Edit branch details"
+        description="Only the fields you fill in are changed."
+        fields={[
+          { name: "name", label: "English name", half: true },
+          { name: "km", label: "Khmer name", half: true },
+          { name: "address", label: "Address" },
+          { name: "phone", label: "Phone", type: "tel", half: true },
+          { name: "hours", label: "Opening hours", half: true },
+          { name: "dayEnd", label: "Business day ends at", type: "time", half: true },
+        ]}
+        initial={{ name: b.name_en, km: b.name_km ?? "", dayEnd }}
+        onSubmit={(v) => {
+          const body = Object.fromEntries(
+            Object.entries({ name_en: v.name, name_km: v.km, address: v.address, phone: v.phone, opening_hours: v.hours, day_end_time: v.dayEnd }).filter(([, x]) => x !== undefined && x !== "")
+          )
+          return save(() => api("PATCH", `/branches/${b.id}`, { body })).then(() => {
+            list.reload()
+            return reloadMe()
+          })
+        }}
+      />
+    </Panel>
+  )
+}
+
+function Currency() {
+  const { me } = useSession()
+  const rates = useApi(() => api<{ id: string; base_currency: string; quote_currency: string; rate: string; effective_from: string; source: string }[]>("GET", "/exchange-rates"), [], [])
+  const [add, setAdd] = React.useState(false)
+  return (
+    <>
+      <SettingsForm
+        group="billing"
+        title="Rounding and bills"
+        description="Base currency is USD. Financial setting: needs settings approval."
+        fields={[
+          { name: "khr_rounding_increment", label: "Round riel cash to the nearest", type: "number", min: 1, half: true, hint: "e.g. 100" },
+          { name: "partial_payments", label: "Allow paying a bill in several parts", type: "switch", half: true },
+        ]}
+      />
+      <Panel
+        title="Exchange rates (1 USD in riel)"
+        description="The rate in effect when a payment is taken is stored with the payment."
+        actions={
+          can(me, "exchange_rates.manage") && (
+            <Button onClick={() => setAdd(true)}>
+              <Plus />
+              New rate
+            </Button>
+          )
+        }
+      >
+        <DataTable
+          rows={rates.data.map((r) => ({ ...r, from: when(r.effective_from), value: num(r.rate) }))}
+          exportName="exchange-rates"
+          emptyTitle="No rates entered"
+          columns={[
+            { key: "from", header: "Effective from" },
+            { key: "value", header: "Riel per USD", align: "right", render: (r) => r.value.toLocaleString() },
+            { key: "source", header: "Source" },
+          ]}
+        />
+      </Panel>
+      <RecordDialog
+        open={add}
+        onOpenChange={setAdd}
+        title="New exchange rate"
+        description="Effective now or later. Back-dated rates need settings approval."
+        fields={[
+          { name: "rate", label: "Riel per 1 USD", type: "number", min: 1, required: true, half: true },
+          { name: "from", label: "Effective from", type: "date", required: true, half: true },
+          { name: "source", label: "Source", required: true, hint: "e.g. NBC official rate" },
+        ]}
+        initial={{ from: new Date().toLocaleDateString("en-CA") }}
+        onSubmit={(v) => {
+          const day = String(v.from)
+          const at = day === new Date().toLocaleDateString("en-CA") ? new Date() : new Date(`${day}T00:00`)
+          return save(() => api("POST", "/exchange-rates", { body: { rate: String(v.rate), effective_from: at.toISOString(), source: v.source } })).then(rates.reload)
+        }}
+      />
+    </>
+  )
+}
+
+function Taxes() {
+  const { me } = useSession()
+  const profiles = useApi(() => api<TaxProfile[]>("GET", "/tax-profiles"), [], [])
+  const [addFor, setAddFor] = React.useState<TaxProfile | null>(null)
+  return (
+    <>
+      <Notice tone="warning">Enter only verified tax and service-charge rates. Unverified rules are flagged until someone records the reference they were checked against.</Notice>
+      {profiles.data.map((p) => (
+        <Panel
+          key={p.id}
+          title={p.name}
+          description={p.code}
+          actions={
+            can(me, "settings.approve") && (
+              <Button variant="outline" onClick={() => setAddFor(p)}>
+                <Plus />
+                Schedule a rule
+              </Button>
+            )
+          }
+        >
+          <DataTable
+            rows={p.rates.map((r) => ({
+              ...r,
+              pct: `${(num(r.rate) * 100).toFixed(2)}%`,
+              period: `${when(r.valid_from).slice(0, 10) || "—"} → ${r.valid_to ? when(r.valid_to).slice(0, 10) : "open"}`,
+              types: r.applies_to_order_types.join(", "),
+              base: r.base_rule === "DiscountedSubtotal" ? "Subtotal after discounts" : "Subtotal plus service charge",
+            }))}
+            exportName={`tax-${p.code}`}
+            emptyTitle="No rules"
+            columns={[
+              { key: "charge_kind", header: "Kind" },
+              { key: "name", header: "Name" },
+              { key: "pct", header: "Rate", align: "right" },
+              { key: "base", header: "Charged on" },
+              { key: "inclusive", header: "Included in price", render: (r) => (r.inclusive ? "Yes" : "No") },
+              { key: "types", header: "Order types" },
+              { key: "period", header: "In effect" },
+              { key: "verified", header: "Verified", render: (r) => <StatusBadge status={r.verified ? "Verified" : "Unverified"} tone={r.verified ? "success" : "warning"} /> },
+            ]}
+          />
+        </Panel>
+      ))}
+      <RecordDialog
+        open={!!addFor}
+        onOpenChange={(o) => !o && setAddFor(null)}
+        title={`New rule for ${addFor?.name ?? ""}`}
+        description="The current rule of the same kind ends when this one starts."
+        fields={[
+          { name: "kind", label: "Kind", type: "select", options: ["Tax", "ServiceCharge"], required: true, half: true },
+          { name: "name", label: "Name", required: true, half: true },
+          { name: "pct", label: "Rate (%)", type: "number", min: 0, max: 99.99, required: true, half: true },
+          { name: "base", label: "Charged on", type: "select", options: ["Subtotal after discounts", "Subtotal plus service charge"], required: true, half: true },
+          { name: "types", label: "Order types (comma separated)", required: true, hint: "DineIn, Takeaway, Delivery" },
+          { name: "from", label: "Starts", type: "date", required: true, half: true },
+          { name: "inclusive", label: "Already included in menu prices", type: "switch", half: true },
+          { name: "verified", label: "I have verified this rate", type: "switch", half: true },
+          { name: "ref", label: "Verified against (document or reference)", half: true },
+        ]}
+        initial={{ types: "DineIn, Takeaway, Delivery" }}
+        onSubmit={(v) =>
+          save(() =>
+            api("POST", `/tax-profiles/${addFor!.id}/rates`, {
+              body: {
+                charge_kind: v.kind,
+                name: v.name,
+                rate: String(Number(v.pct) / 100),
+                base_rule: v.base === "Subtotal plus service charge" ? "SubtotalPlusServiceCharge" : "DiscountedSubtotal",
+                inclusive: Boolean(v.inclusive),
+                applies_to_order_types: String(v.types).split(",").map((s) => s.trim()).filter(Boolean),
+                valid_from: new Date(`${v.from}T00:00`).toISOString(),
+                verified: Boolean(v.verified),
+                verified_ref: String(v.ref ?? "") || undefined,
+              },
+            })
+          ).then(profiles.reload)
+        }
+      />
+    </>
+  )
+}
+
+function PaymentMethods() {
+  const { me } = useSession()
+  const list = useApi(
+    () => api<{ id: string; code: string; name: string; kind: string; currencies: string[]; reference_required: boolean; change_allowed: boolean; is_active: boolean }[]>("GET", "/payment-methods"),
+    [],
+    []
+  )
+  const approver = can(me, "settings.approve")
+  return (
+    <Panel title="Payment methods" description="Turning a method off hides it at the till. Financial setting: needs settings approval.">
+      <DataTable
+        rows={list.data}
+        exportName="payment-methods"
+        columns={[
+          { key: "name", header: "Method" },
+          { key: "code", header: "Code" },
+          { key: "currencies", header: "Currencies", render: (m) => m.currencies.join(", ") },
+          { key: "change_allowed", header: "Change given", render: (m) => (m.change_allowed ? "Yes" : "No") },
+          {
+            key: "reference_required",
+            header: "Reference required",
+            render: (m) => (
+              <Switch
+                aria-label={`${m.name} needs a reference`}
+                disabled={!approver}
+                checked={m.reference_required}
+                onCheckedChange={(c) => void act(() => api("PATCH", `/payment-methods/${m.id}`, { body: { reference_required: Boolean(c) } }), "Saved", list.reload)}
+              />
+            ),
+          },
+          {
+            key: "is_active",
+            header: "On",
+            render: (m) => (
+              <Switch
+                aria-label={`${m.name} on`}
+                disabled={!approver}
+                checked={m.is_active}
+                onCheckedChange={(c) => void act(() => api("PATCH", `/payment-methods/${m.id}`, { body: { is_active: Boolean(c) } }), `${m.name} ${c ? "on" : "off"}`, list.reload)}
+              />
+            ),
+          },
+        ]}
+      />
+    </Panel>
+  )
+}
+
+function Stations() {
+  const { me } = useSession()
+  const list = useApi(() => api<{ id: string; code: string; name: string; warn_minutes: number; critical_minutes: number; backup_printer: string | null; is_active: boolean }[]>("GET", "/kitchen/stations"), [], [])
+  const [add, setAdd] = React.useState(false)
+  return (
+    <Panel
+      title="Kitchen stations"
+      description="Menu items are routed to a station. A station's screen turns tickets amber and red after these times."
+      actions={
+        can(me, "settings.manage") && (
+          <Button onClick={() => setAdd(true)}>
+            <Plus />
+            Station
+          </Button>
+        )
+      }
+    >
+      <DataTable
+        rows={list.data}
+        exportName="stations"
+        columns={[
+          { key: "code", header: "Code" },
+          { key: "name", header: "Name" },
+          { key: "warn_minutes", header: "Late after (min)", align: "right" },
+          { key: "critical_minutes", header: "Critical after (min)", align: "right" },
+          { key: "backup_printer", header: "Backup printer", render: (s) => s.backup_printer ?? "—" },
+          { key: "is_active", header: "Status", render: (s) => <StatusBadge status={s.is_active ? "Active" : "Inactive"} /> },
+        ]}
+      />
+      <RecordDialog
+        open={add}
+        onOpenChange={setAdd}
+        title="Configure a station"
+        description="Using an existing code updates that station."
+        fields={[
+          { name: "code", label: "Code (capitals, e.g. GRILL)", required: true, half: true, validate: (v) => (/^[A-Z0-9_]{2,20}$/.test(String(v)) ? undefined : "2–20 capital letters, digits or _") },
+          { name: "name", label: "Name", required: true, half: true },
+          { name: "warn", label: "Late after (minutes)", type: "number", min: 1, required: true, half: true },
+          { name: "crit", label: "Critical after (minutes)", type: "number", min: 2, required: true, half: true },
+          { name: "printer", label: "Backup printer" },
+        ]}
+        initial={{ warn: "10", crit: "20" }}
+        onSubmit={(v) =>
+          save(() =>
+            api("POST", "/kitchen-stations", {
+              body: { code: v.code, name: v.name, warn_minutes: Number(v.warn), critical_minutes: Number(v.crit), backup_printer: String(v.printer ?? "") || undefined },
+            })
+          ).then(list.reload)
+        }
+      />
+    </Panel>
+  )
+}
+
+function Accounting() {
+  const { me } = useSession()
+  const allowed = can(me, "accounting.export")
+  const mapping = useApi(
+    () =>
+      allowed
+        ? api<{ accounts: Record<string, { code: string; name: string; placeholder: boolean }>; method_accounts: Record<string, { code: string; name: string; placeholder: boolean }>; mapping_confirmed: boolean }>("GET", "/accounting/mapping")
+        : Promise.resolve(null),
+    [allowed],
+    null
+  )
+  const [from, setFrom] = React.useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toLocaleDateString("en-CA")
+  })
+  const [to, setTo] = React.useState(() => new Date().toLocaleDateString("en-CA"))
+  const journals = useApi(
+    () => (allowed ? api<{ journals: { date: string; narration: string; lines: { description: string; account_code: string; amount: string }[] }[] }>("GET", "/accounting/journals", { query: { date_from: from, date_to: to } }) : Promise.resolve(null)),
+    [from, to, allowed],
+    null
+  )
+  if (!allowed) return <Notice tone="info">The accounting export needs the accounting export permission.</Notice>
+  const m = mapping.data
+  const accountFields: SettingField[] = m
+    ? [
+        ...Object.entries(m.accounts).map(([k, a]): SettingField => ({ name: `a_${k}`, path: `accounts.${k}`, label: a.name, half: true, hint: a.placeholder ? `Placeholder ${a.code}` : undefined })),
+        ...Object.entries(m.method_accounts).map(([k, a]): SettingField => ({ name: `m_${k}`, path: `method_accounts.${k}`, label: `Payments: ${a.name}`, half: true, hint: a.placeholder ? `Placeholder ${a.code}` : undefined })),
+        { name: "tax_rate_name", label: "Xero tax rate name", half: true },
+        { name: "tracking_name", label: "Xero tracking category", half: true },
+        { name: "mapping_confirmed", label: "The accountant has confirmed these codes (export is allowed)", type: "switch" },
+      ]
+    : []
+  return (
+    <>
+      {m && !m.mapping_confirmed && <Notice tone="warning">The export is blocked until real Xero account codes replace the placeholders and the mapping is confirmed.</Notice>}
+      {m && <SettingsForm group="accounting" title="Xero account codes" description="One journal per business day. Empty fields use the placeholder code shown." fields={accountFields} allowRestaurantWide />}
+      <Panel
+        title="Daily journals"
+        description="Each journal balances to zero (debits positive, credits negative)."
+        actions={
+          <Button
+            variant="outline"
+            disabled={!m?.mapping_confirmed}
+            onClick={() => void download("/accounting/journals/xero.csv", `xero-${from}-${to}.csv`, { date_from: from, date_to: to }).catch((e) => toast.error(apiMessage(e)))}
+          >
+            <Download />
+            Xero file
+          </Button>
+        }
+      >
+        <div className="mb-2 flex items-center gap-2 text-sm">
+          <input type="date" aria-label="From" className="rounded-md border px-2 py-1" value={from} onChange={(e) => setFrom(e.target.value)} />
+          to
+          <input type="date" aria-label="To" className="rounded-md border px-2 py-1" value={to} onChange={(e) => setTo(e.target.value)} />
+        </div>
+        <DataTable
+          rows={(journals.data?.journals ?? []).flatMap((j) => j.lines.map((l, i) => ({ id: `${j.date}-${i}`, date: i === 0 ? String(j.date) : "", ...l, amt: num(l.amount) })))}
+          exportName="journals"
+          emptyTitle="No journals in this period"
+          columns={[
+            { key: "date", header: "Date" },
+            { key: "description", header: "Line" },
+            { key: "account_code", header: "Account" },
+            { key: "amt", header: "Amount", align: "right", render: (l) => l.amt.toFixed(2) },
+          ]}
+        />
+      </Panel>
+    </>
+  )
+}
+
+function DayEnd() {
+  const { me } = useSession()
+  const [last, setLast] = React.useState<Record<string, unknown> | null>(null)
+  const close = (acknowledge: boolean, reason?: string) =>
+    api<Record<string, unknown>>("POST", "/day-end/close", { body: { acknowledge_open_items: acknowledge, reason } }).then(
+      (r) => {
+        setLast(r)
+        toast.success(`Business day ${String(r.business_date)} closed`)
+      },
+      (e) => {
+        if (e instanceof ApiError && e.code === "DAY_END_BLOCKED")
+          confirmAction({
+            title: "There are open items",
+            effect: `${e.body.open_orders} open orders, ${e.body.open_sessions} open cashier sessions and ${e.body.pending_payments} pending payments. Close the day anyway?`,
+            requireReason: true,
+            destructive: true,
+            confirmLabel: "Close with open items",
+            onConfirm: (r) => void close(true, r),
+          })
+        else toast.error(apiMessage(e))
+      }
+    )
+  return (
+    <Panel title="Close the business day" description={`Business day ${me?.business_date}. Closing checks open orders, cashier sessions and pending payments, then finalises the day's summaries.`} className="max-w-xl">
+      {last && (
+        <KV
+          className="mb-3"
+          items={[
+            ["Closed", String(last.business_date)],
+            ["Open orders at close", String(last.open_orders)],
+            ["Open sessions at close", String(last.open_sessions)],
+            ["Pending payments at close", String(last.pending_payments)],
+          ]}
+        />
+      )}
+      <Button
+        disabled={!can(me, "settings.manage")}
+        onClick={() =>
+          confirmAction({
+            title: `Close business day ${me?.business_date}?`,
+            effect: "Day-end summaries are finalised. This is recorded in the audit trail.",
+            confirmLabel: "Close day",
+            onConfirm: () => void close(false),
+          })
+        }
+      >
+        <Check />
+        Close day
+      </Button>
+    </Panel>
+  )
+}
+
+function History() {
+  const { me } = useSession()
+  const log = useApi(
+    async () =>
+      can(me, "audit.view")
+        ? (await api<{ data: { id: number; occurred_at: string; action: string; entity_type: string; before_data: unknown; after_data: unknown }[] }>("GET", "/audit-logs", { query: { action: "settings.", page_size: 100 } })).data
+        : [],
+    [me?.id],
+    []
+  )
+  return (
+    <DataTable
+      rows={log.data.map((e) => ({ ...e, id: String(e.id), time: when(e.occurred_at), change: JSON.stringify(e.after_data).slice(0, 120) }))}
+      exportName="settings-history"
+      emptyTitle={can(me, "audit.view") ? "No settings changes recorded" : "You can't view the audit trail"}
+      columns={[
+        { key: "time", header: "Time" },
+        { key: "action", header: "Change" },
+        { key: "change", header: "New value" },
+      ]}
+    />
   )
 }

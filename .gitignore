@@ -40,3 +40,5 @@ next-env.d.ts
 
 /.vscode
 /.claude
+# demo / test credentials
+.demo_credential

@@ -309,6 +309,14 @@ def approve_gr(gr_id: uuid.UUID, ctx: Annotated[Ctx, Depends(require("purchases.
     return gr_out(svc.approve_receipt(ctx, svc._get(ctx, GoodsReceipt, gr_id, lock=True)))
 
 
+@router.get("/purchase-returns", summary="Returns to suppliers from this branch, newest first")
+def list_returns(ctx: PView):
+    rows = ctx.db.execute(select(PurchaseReturn, GoodsReceipt.gr_no, GoodsReceipt.supplier_id).join(GoodsReceipt, GoodsReceipt.id == PurchaseReturn.gr_id)
+                          .where(PurchaseReturn.branch_id == ctx.branch_id).order_by(PurchaseReturn.created_at.desc()).limit(200)).all()
+    return [{"id": r.id, "return_no": r.return_no, "gr_id": r.gr_id, "gr_no": gr_no, "supplier_id": supplier_id, "reason": r.reason, "total_value": r.total_value,
+             "created_at": r.created_at, "lines": [{"gr_item_id": ln.gr_item_id, "quantity": ln.quantity} for ln in r.lines]} for r, gr_no, supplier_id in rows]
+
+
 @router.post("/purchase-returns", status_code=201)
 def create_return(body: ReturnIn, ctx: Annotated[Ctx, Depends(require("goods_receipts.post"))]):
     r = svc.create_return(ctx, svc._get(ctx, GoodsReceipt, body.gr_id, lock=True), [ln.model_dump() for ln in body.lines], body.reason)

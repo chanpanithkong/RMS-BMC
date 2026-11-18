@@ -41,6 +41,8 @@ interface Options {
   idempotent?: boolean | string
   ifMatch?: number
   signal?: AbortSignal
+  /** Extra headers, e.g. X-Customer-Token on the public ordering pages. */
+  headers?: Record<string, string | undefined>
 }
 
 export const newIdempotencyKey = () => crypto.randomUUID()
@@ -67,16 +69,19 @@ export async function api<T = unknown>(method: Method, path: keyof paths | strin
   const url = new URL(`${API_URL}/api/v1${path}`)
   for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v))
   const headers: Record<string, string> = { Accept: "application/json" }
-  if (opts.body !== undefined) headers["Content-Type"] = "application/json"
+  // FormData (file uploads) sets its own multipart content type.
+  const isForm = typeof FormData !== "undefined" && opts.body instanceof FormData
+  if (opts.body !== undefined && !isForm) headers["Content-Type"] = "application/json"
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
   if (branchId) headers["X-Branch-Id"] = branchId
   if (opts.idempotent) headers["Idempotency-Key"] = typeof opts.idempotent === "string" ? opts.idempotent : newIdempotencyKey()
   if (opts.ifMatch !== undefined) headers["If-Match"] = String(opts.ifMatch)
+  for (const [k, v] of Object.entries(opts.headers ?? {})) if (v) headers[k] = v
 
   const res = await fetch(url, {
     method,
     headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
     credentials: "include", // the refresh token travels only in an HttpOnly cookie
     signal: opts.signal,
   })
@@ -128,4 +133,27 @@ export function connectRealtime(topics: string[], onEvent: (event: { topic: stri
     closed = true
     ws?.close()
   }
+}
+
+/** Download a protected file (attachments, exports) with the current session and save it in the browser. */
+export async function download(path: string, filename: string, query?: Record<string, string | undefined>) {
+  const url = new URL(`${API_URL}/api/v1${path}`)
+  for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined) url.searchParams.set(k, v)
+  const get = () =>
+    fetch(url, {
+      headers: { ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}), ...(branchId ? { "X-Branch-Id": branchId } : {}) },
+      credentials: "include",
+    })
+  let res = await get()
+  if (res.status === 401 && (await refresh())) res = await get()
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: { code: "HTTP_ERROR", message: res.statusText, correlation_id: "" } }))
+    throw new ApiError(res.status, body.error)
+  }
+  const href = URL.createObjectURL(await res.blob())
+  const a = document.createElement("a")
+  a.href = href
+  a.download = filename
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(href), 10_000)
 }

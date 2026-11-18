@@ -97,6 +97,9 @@ def test_employees_schedule_and_user_link(api, seeded):
     assert len(gm.get(f"/shift-schedules?week_start={monday.isoformat()}").json()) == 1
     assert gm.post(f"/employees/{e['id']}/clock-in").status_code == 200
     assert gm.post(f"/employees/{e['id']}/clock-in").json()["error"]["code"] == "ALREADY_CLOCKED_IN"
+    assert gm.post(f"/employees/{e['id']}/clock-out").status_code == 200
+    att = gm.get("/attendance").json()
+    assert att[0]["employee_id"] == e["id"] and att[0]["clock_out"] and att[0]["hours"] is not None
     # BR-051: deactivating the employee deactivates the linked user
     gm.patch(f"/employees/{e['id']}", {"status": "Inactive"})
     assert gm.get(f"/users/{seeded['users']['cashier2']}").json()["status"] == "Inactive"

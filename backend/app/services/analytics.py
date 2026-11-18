@@ -234,7 +234,7 @@ def run_job(db: Session, job: ReportJob) -> None:
     ctx = Ctx(db=db, user=user, session_id=uuid.UUID(int=0), branch=branch, permissions=perms, roles={r.code for r in user.roles}, _limits=limits)
     p = job.params
     data = reports.run(ctx, job.report_id, date.fromisoformat(p["date_from"]), date.fromisoformat(p["date_to"]),
-                       {k: v for k, v in p.items() if k not in ("date_from", "date_to")})
+                       {k: v for k, v in p.items() if k not in ("date_from", "date_to", "schedule_id")})
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     name = f"{job.id}.csv"
     (REPORT_DIR / name).write_text(_to_csv(data), encoding="utf-8")
@@ -250,6 +250,9 @@ def process_jobs(db: Session, limit: int = 3) -> dict:
             with db.begin_nested():
                 run_job(db, job)
             job.status, job.finished_at, job.expires_at = "Done", utcnow(), utcnow() + timedelta(hours=JOB_HOURS)
+            from app.services.schedules import on_job_done
+
+            on_job_done(db, job)  # FR-RPT-027: scheduled jobs email the recipient a link
             out["done"] += 1
         except Exception as e:  # noqa: BLE001 - the error is stored on the job for the user
             job.status, job.finished_at, job.error = "Failed", utcnow(), (getattr(e, "message", None) or str(e))[:500]

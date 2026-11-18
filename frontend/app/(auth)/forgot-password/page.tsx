@@ -12,33 +12,43 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { FormRow, Notice } from "@/components/rms/kit"
+import { api } from "@/lib/api/client"
 
 export default function ForgotPasswordPage() {
   const [sent, setSent] = React.useState(false)
+  const [who, setWho] = React.useState("")
+  const [busy, setBusy] = React.useState(false)
   return (
     <Card>
       <CardHeader>
         <CardTitle>Reset password</CardTitle>
         <CardDescription>
-          We&apos;ll email a reset link if the account exists.
+          We&apos;ll email a reset link if the account exists and has an email address.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
         {sent ? (
-          <Notice tone="success">Check your email for a reset link.</Notice>
+          <Notice tone="success">If the account exists, a reset link has been sent. Check your email; the link works once.</Notice>
         ) : (
           <form
             className="grid gap-3"
             onSubmit={(e) => {
               e.preventDefault()
-              setSent(true)
+              setBusy(true)
+              // The answer is the same whether or not the account exists (no account enumeration).
+              void api("POST", "/auth/password/forgot", { body: { email_or_username: who.trim() } })
+                .catch(() => undefined)
+                .finally(() => {
+                  setBusy(false)
+                  setSent(true)
+                })
             }}
           >
-            <FormRow label="Email" required htmlFor="em">
-              <Input id="em" type="email" required autoComplete="email" />
+            <FormRow label="Email or username" required htmlFor="em">
+              <Input id="em" required autoComplete="username" value={who} onChange={(e) => setWho(e.target.value)} />
             </FormRow>
-            <Button type="submit" className="h-10">
-              Send reset link
+            <Button type="submit" className="h-10" disabled={busy}>
+              {busy ? "Sending…" : "Send reset link"}
             </Button>
           </form>
         )}

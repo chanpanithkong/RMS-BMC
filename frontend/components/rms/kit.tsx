@@ -339,9 +339,11 @@ export function SimpleSelect({
   "aria-label": ariaLabel,
   invalid,
   size,
+  disabled,
 }: {
   value: string
   onChange: (v: string) => void
+  disabled?: boolean
   options: Option[]
   placeholder?: string
   className?: string
@@ -355,6 +357,7 @@ export function SimpleSelect({
       value={value}
       onValueChange={(v) => onChange(String(v ?? ""))}
       items={options}
+      disabled={disabled}
     >
       <SelectTrigger
         id={id}
@@ -627,5 +630,14 @@ export function DateRangeFilter({
       onChange={onChange}
       options={opts("Today", "Yesterday", "This week", "This month", "Custom")}
     />
+  )
+}
+
+/** Shown where a screen section has no backend support yet, instead of sample data. */
+export function NotConnected({ what }: { what: string }) {
+  return (
+    <Notice tone="info">
+      {what} {what.endsWith("s") ? "are" : "is"} not available in this version yet.
+    </Notice>
   )
 }

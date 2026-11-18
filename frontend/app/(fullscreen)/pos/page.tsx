@@ -67,8 +67,10 @@ import {
   useClock,
   useRms,
 } from "@/lib/rms/store"
-import type { MenuItem, OrderLine, OrderType } from "@/lib/rms/types"
-import { customers } from "@/lib/rms/back-office"
+import type { ComboPick, MenuItem, OrderLine, OrderType } from "@/lib/rms/types"
+import { api } from "@/lib/api/client"
+import * as cus from "@/lib/api/customers"
+import { useApi } from "@/lib/api/use-api"
 import { cn } from "@/lib/utils"
 
 const typeLabels: Record<OrderType, string> = {
@@ -86,6 +88,9 @@ const itemIcon = (m: MenuItem) => {
     <UtensilsCrossed className={cls} aria-hidden />
   )
 }
+/** Search only once two characters are typed (phone, name or code). */
+const dialogOpenFor = (q: string) => q.trim().length >= 2
+
 const voidReasons = [
   "Customer changed mind",
   "Wrong item entered",
@@ -112,8 +117,8 @@ function ProductTile({ item, onAdd }: { item: MenuItem; onAdd: () => void }) {
             Sold out
           </span>
         ) : (
-          (item.groups.length > 0 || item.variants) && (
-            <span className="text-[11px] text-muted-foreground">options</span>
+          (item.groups.length > 0 || item.variants || item.combo) && (
+            <span className="text-[11px] text-muted-foreground">{item.combo ? "set" : "options"}</span>
           )
         )}
       </span>
@@ -126,6 +131,11 @@ function ProductTile({ item, onAdd }: { item: MenuItem; onAdd: () => void }) {
         </span>
         <span className="tabular mt-auto pt-1 text-sm font-semibold">
           {usd(item.price)}
+          {item.regularPrice !== undefined && (
+            <span className="ml-1 text-xs font-normal text-muted-foreground line-through" title={item.priceList}>
+              {usd(item.regularPrice)}
+            </span>
+          )}
         </span>
       </span>
     </button>
@@ -167,6 +177,12 @@ function PosScreen() {
   const [busy, setBusy] = React.useState(false)
   const [holdLabel, setHoldLabel] = React.useState("")
   const [payFirst, setPayFirst] = React.useState(false)
+  const [custQ, setCustQ] = React.useState("")
+  const customerHits = useApi(
+    () => (dialogOpenFor(custQ) ? cus.list(custQ.trim()) : Promise.resolve([] as cus.Customer[])),
+    [custQ],
+    [] as cus.Customer[]
+  )
 
   pos.useLiveSync()
   // Categories come from the API; until one is picked, show the first.
@@ -174,7 +190,20 @@ function PosScreen() {
   const order = orders.find((o) => o.id === orderId)
   const canPay = ["GM", "BRMGR", "SUPV", "CASHIER", "BAR"].includes(role)
   const lines = order?.lines ?? []
-  const pending = lines.filter((l) => l.status === "Pending")
+  // A combo shows as one line listing its items; the price is the sum of their shares (FR-MENU-005).
+  const shownLines = lines
+    .filter((l) => !l.parentId)
+    .map((l) => {
+      const kids = lines.filter((k) => k.parentId === l.id)
+      return kids.length
+        ? {
+            ...l,
+            modifiers: kids.map((k) => ({ name: `${k.slot ?? ""}: ${k.name}${k.variant ? ` (${k.variant})` : ""}`, delta: 0 })),
+            unitPrice: kids.reduce((s, k) => s + k.unitPrice + k.modifiers.reduce((a, m) => a + m.delta, 0), 0),
+          }
+        : l
+    })
+  const pending = lines.filter((l) => l.status === "Pending" && !l.parentId) // a combo counts once
   const totals = order ? calcBill(order) : null
   const session = sessions.find((s) => s.status === "Open" && s.mine)
   const held = orders.filter((o) => o.held)
@@ -228,10 +257,10 @@ function PosScreen() {
 
   const addItem = (
     m: MenuItem,
-    pick: { variant?: string; modifiers: OrderLine["modifiers"]; qty: number; note?: string }
+    pick: { variant?: string; modifiers: OrderLine["modifiers"]; qty: number; note?: string; combo?: ComboPick[] }
   ) => act(async () => pos.addLine(await ensureOrder(), m, pick))
   const add = (m: MenuItem) => {
-    if (m.variants || m.groups.length) return setModItem(m)
+    if (m.variants || m.groups.length || m.combo) return setModItem(m)
     void addItem(m, { modifiers: [], qty: 1 })
   }
 
@@ -499,7 +528,7 @@ function PosScreen() {
                 Tap a menu item to start this order.
               </li>
             )}
-            {lines.map((l) => (
+            {shownLines.map((l) => (
               <li
                 key={l.id}
                 className={cn(
@@ -716,7 +745,7 @@ function PosScreen() {
         onConfirm={(c) => {
           const m = modItem!
           setModItem(null)
-          void addItem(m, { variant: c.variant, modifiers: c.modifiers, qty: c.qty, note: c.note })
+          void addItem(m, { variant: c.variant, modifiers: c.modifiers, qty: c.qty, note: c.note, combo: c.combo })
         }}
       />
       {order && (
@@ -1044,24 +1073,41 @@ function PosScreen() {
               details.
             </DialogDescription>
           </DialogHeader>
+          <Input
+            aria-label="Search customers"
+            placeholder="Name, code or phone"
+            value={custQ}
+            onChange={(e) => setCustQ(e.target.value)}
+          />
           <ul className="max-h-72 divide-y overflow-y-auto rounded-lg border">
-            {customers.map((c) => (
+            {customerHits.data.length === 0 && (
+              <li className="p-3 text-sm text-muted-foreground">
+                {custQ.trim().length < 2 ? "Type at least 2 characters." : "No customers found."}
+              </li>
+            )}
+            {customerHits.data.map((c) => (
               <li key={c.id}>
                 <button
                   className="flex w-full items-center justify-between p-2.5 text-left text-sm hover:bg-muted"
                   onClick={() => {
-                    void act(async () => pos.updateOrder(await ensureOrder(), { customer: c.name }))
-                    if (c.allergy) toast.warning(`${c.name}: ${c.allergy}`)
                     setDialog(null)
+                    void act(async () => {
+                      const id = await ensureOrder()
+                      // The server links the customer and returns preferences and allergies for the POS.
+                      const info = await api<{ allergy_notes?: string | null; preferences?: string | null }>("POST", `/customers/attach/${id}`, {
+                        body: { customer_id: c.id },
+                      })
+                      await pos.refreshOrder(id)
+                      if (info.allergy_notes) toast.warning(`${c.name}: ${info.allergy_notes}`, { duration: 10_000 })
+                      else if (info.preferences) toast.info(`${c.name}: ${info.preferences}`)
+                    })
                   }}
                 >
                   <span>
                     <span className="font-medium">{c.name}</span>{" "}
-                    <span className="text-xs text-muted-foreground">
-                      {c.phone}
-                    </span>
+                    <span className="text-xs text-muted-foreground">{c.phone}</span>
                   </span>
-                  <StatusBadge status={c.segment} tone="neutral" />
+                  <StatusBadge status={c.classification} tone="neutral" />
                 </button>
               </li>
             ))}

@@ -102,7 +102,7 @@ def evaluate(ctx: Ctx, order: Order) -> tuple[list[Candidate], list[dict]]:
 
     db = ctx.db
     now = utcnow()
-    items = [i for i in live_items(order) if i.unit_price_snapshot + i.modifiers_total > 0]
+    items = [i for i in live_items(order) if i.unit_price_snapshot + i.modifiers_total > 0 and i.parent_item_id is None]  # combo items are already a set price
     redeemed = {r.promotion_id: r.code_id for r in db.scalars(select(PromotionRedemption).where(PromotionRedemption.order_id == order.id,
                                                                                                 PromotionRedemption.cancelled_at.is_(None)))}
     promos = db.scalars(select(Promotion).where(Promotion.is_active.is_(True), (Promotion.auto_apply.is_(True)) | (Promotion.id.in_(list(redeemed) or [None])))).all()

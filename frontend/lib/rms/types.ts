@@ -68,6 +68,18 @@ export interface Variant {
   name: string
   price: number
 }
+/** A combo slot (e.g. Main, Drink) and the items that can fill it (FR-MENU-005). */
+export interface ComboSlot {
+  id: string
+  name: string
+  min: number
+  max: number
+  options: { variantId: string; name: string; delta: number; available: boolean }[]
+}
+export interface ComboPick {
+  slot_id: string
+  variant_id: string
+}
 export interface MenuItem {
   id: string
   code: string
@@ -87,6 +99,11 @@ export interface MenuItem {
   channels: string[]
   /** API: variant name -> variant id ("Regular" for items without sizes). */
   variantIds?: Record<string, string>
+  /** API: normal price and list name while a time-based price list (e.g. happy hour) applies. */
+  regularPrice?: number
+  priceList?: string
+  /** Combo items only: the slots to choose from. */
+  combo?: ComboSlot[]
 }
 
 export interface LineModifier {
@@ -126,6 +143,9 @@ export interface OrderLine {
   startedAt?: number
   readyAt?: number
   modified?: boolean
+  /** Items inside a combo point at the combo line; their share of the combo price is in unitPrice. */
+  parentId?: string
+  slot?: string
 }
 export interface Payment {
   id: string
@@ -227,6 +247,9 @@ export interface FloorTable {
   group?: string
   upcoming?: string
   flagged?: boolean
+  /** API: optimistic-lock version and dining area id, for layout edits. */
+  version?: number
+  areaId?: string
 }
 export interface Reservation {
   id: string

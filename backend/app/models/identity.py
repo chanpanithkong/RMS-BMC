@@ -200,6 +200,10 @@ class OutboxEvent(IdMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # Delivery log for emails (FR-NOTIF-013): Sent, Logged (no SMTP configured) or Failed after the last attempt
+    delivery_status: Mapped[str | None] = mapped_column(String(10))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    next_attempt_at: Mapped[datetime | None]
 
 
 class Setting(IdMixin, TimestampMixin, VersionMixin, Base):

@@ -118,7 +118,27 @@ def recalc(ctx: Ctx, order: Order) -> None:
     refresh_statuses(ctx, order)
 
 
+STATUS_RANK = {"Pending": 0, "Sent": 1, "InPreparation": 2, "Ready": 3, "Served": 4, "Collected": 4}
+
+
+def combo_children(order: Order, item: OrderItem) -> list[OrderItem]:
+    return [i for i in order.items if i.parent_item_id == item.id and i.item_status != "Cancelled"]
+
+
+def sync_combo_headers(order: Order) -> None:
+    """A combo header has no kitchen work of its own: its status is that of its least advanced item."""
+    for h in live_items(order):
+        kids = combo_children(order, h)
+        if kids and h.parent_item_id is None:
+            least = min(kids, key=lambda k: STATUS_RANK.get(k.item_status, 0))
+            if h.item_status != least.item_status:
+                h.item_status = least.item_status
+                h.ready_at = h.ready_at or (least.ready_at if STATUS_RANK.get(least.item_status, 0) >= 3 else None)
+                h.served_at = least.served_at if STATUS_RANK.get(least.item_status, 0) >= 4 else None
+
+
 def refresh_statuses(ctx: Ctx, order: Order) -> None:
+    sync_combo_headers(order)
     was_kitchen = order.kitchen_status
     items = live_items(order)
     if not items or all(i.item_status == "Pending" for i in items):
@@ -247,20 +267,39 @@ def add_item(ctx: Ctx, order: Order, data: dict) -> OrderItem:
         if not set(item.channels or []) & set(allowed):
             raise BusinessRuleError("ITEM_UNAVAILABLE", f"{item.name_en} isn't sold online.", details=[{"field": "variant_id", "issue": "not on this channel"}])
         list_code = get_setting(db, "online", ctx.branch_id).get("price_list")
-    price = menu_svc.current_price(db, variant.id, ctx.branch_id, menu_svc.price_list_id(db, list_code, ctx.branch_id))
+    # FR-MENU-008: a time-based price list (e.g. happy hour) applies while its rules match; the price is snapshotted now (BR-048).
+    price, _ = menu_svc.effective_price(db, variant.id, ctx.branch_id, order.channel, order.order_type, list_code)
     if price is None:
         raise BusinessRuleError("PRICE_MISSING", f"{item.name_en} ({variant.name_en}) has no current price.")
     modifiers = validate_modifiers(db, item, data.get("modifiers") or [])
-    note = data.get("note")
-    oi = OrderItem(order_id=order.id, branch_id=order.branch_id, menu_item_id=item.id, variant_id=variant.id, item_name_en_snapshot=item.name_en,
-                   item_name_km_snapshot=item.name_km, variant_name_snapshot=variant.name_en, category_name_snapshot=item.category.name_en,
-                   unit_price_snapshot=price.price, modifiers_total=sum((m.price_delta for m in modifiers), ZERO), tax_profile_id_snapshot=item.tax_profile_id,
-                   station_code=item.station_code, quantity=Decimal(str(data["quantity"])), seat_no=data.get("seat_no"), note=note,
-                   is_allergy=bool(note and "allerg" in note.lower()), added_by=ctx.user_id, replaces_item_id=data.get("replaces_item_id"))
-    db.add(oi)
-    db.flush()
-    for m in modifiers:
-        db.add(OrderItemModifier(order_item_id=oi.id, modifier_id=m.id, group_id=m.group_id, name_snapshot=m.name_en, price_delta_snapshot=m.price_delta))
+    quantity = Decimal(str(data["quantity"]))
+
+    def add_line(it: MenuItem, v, unit_price: Decimal, station: str | None, extra: dict, mods: list[Modifier] = ()) -> OrderItem:
+        note = extra.get("note")
+        line = OrderItem(order_id=order.id, branch_id=order.branch_id, menu_item_id=it.id, variant_id=v.id, item_name_en_snapshot=it.name_en,
+                         item_name_km_snapshot=it.name_km, variant_name_snapshot=v.name_en, category_name_snapshot=it.category.name_en,
+                         unit_price_snapshot=unit_price, modifiers_total=sum((m.price_delta for m in mods), ZERO), tax_profile_id_snapshot=it.tax_profile_id,
+                         station_code=station, quantity=extra["quantity"], seat_no=extra.get("seat_no"), note=note,
+                         is_allergy=bool(note and "allerg" in note.lower()), added_by=ctx.user_id, replaces_item_id=extra.get("replaces_item_id"),
+                         parent_item_id=extra.get("parent_item_id"), combo_slot_name=extra.get("combo_slot_name"))
+        db.add(line)
+        db.flush()
+        for m in mods:
+            db.add(OrderItemModifier(order_item_id=line.id, modifier_id=m.id, group_id=m.group_id, name_snapshot=m.name_en, price_delta_snapshot=m.price_delta))
+        return line
+
+    if item.item_type == "Combo":
+        # FR-MENU-005: the combo price is shared across the chosen items (owner's decision), see services/combos.py
+        from app.services import combos
+
+        if modifiers:
+            raise BusinessRuleError("MODIFIER_INVALID", "Add options to the items inside the combo instead.")
+        oi = combos.add_combo(ctx, order, item, variant, price.price, quantity, data.get("combo") or [], data.get("note"), data.get("seat_no"), add_line)
+    else:
+        if data.get("combo"):
+            raise BusinessRuleError("VALIDATION_ERROR", f"{item.name_en} isn't a combo.", details=[{"field": "combo", "issue": "not a combo"}])
+        oi = add_line(item, variant, price.price, item.station_code,
+                      {"quantity": quantity, "seat_no": data.get("seat_no"), "note": data.get("note"), "replaces_item_id": data.get("replaces_item_id")}, modifiers)
     db.flush()
     db.refresh(order)
     log_event(ctx, order, "item_added", {"item_id": oi.id, "name": item.name_en, "quantity": oi.quantity})
@@ -307,9 +346,14 @@ def update_pending_item(ctx: Ctx, order: Order, item: OrderItem, data: dict) -> 
     ensure_editable(order)
     if item.item_status != "Pending":
         raise Conflict("ITEM_NOT_PENDING", "This item was already sent to the kitchen. Cancel it and add a new item instead.")
+    if item.parent_item_id and "quantity" in data:
+        raise Conflict("COMBO_PART", "Change the quantity on the combo itself.")
     before = {k: getattr(item, k) for k in data}
     for k, v in data.items():
         setattr(item, k, v)
+    if "quantity" in data:
+        for child in combo_children(order, item):
+            child.quantity = item.quantity
     if "note" in data:
         item.is_allergy = bool(item.note and "allerg" in item.note.lower())
     log_event(ctx, order, "item_updated", {"item_id": item.id, "before": before, "after": data})
@@ -393,17 +437,52 @@ def cancel_item(ctx: Ctx, order: Order, item: OrderItem, reason: str, approval_i
     db = ctx.db
     if item.item_status == "Cancelled":
         raise Conflict("ALREADY_CANCELLED", "This item is already cancelled.")
+    if item.parent_item_id:
+        raise Conflict("COMBO_PART", "This item is part of a combo. Cancel the whole combo instead.")
+    kids = combo_children(order, item)
+    if kids:
+        # A combo is cancelled as a whole: one approval covers every prepared item in it (BR-006)
+        prepared = [k for k in kids if k.item_status not in ("Pending", "Sent")]
+        approver = consume_approval(ctx, approval_id, "void", sum((k.line_net for k in prepared), ZERO), item.id) if prepared else None
+        if any(k.item_status == "Sent" for k in kids):
+            ctx.require("orders.cancel")
+        for k in kids:
+            _void_line(ctx, order, k, reason, approver)
+        status = item.item_status
+        item.item_status, item.void_type, item.void_reason, item.void_approved_by, item.cancelled_at = "Cancelled", None, reason, approver, utcnow()
+        db.flush()
+        recalc(ctx, order)
+        if paid_total(db, order) > order.grand_total:
+            raise Conflict("REFUND_REQUIRED", "Payments already exceed the new total. Refund first, then cancel the item.")
+        log_event(ctx, order, "item_cancelled", {"item_id": item.id, "status_was": status, "combo_items": len(kids), "reason": reason})
+        audit(db, ctx, "order.item_void", "OrderItem", item.id, before={"status": status}, after={"status": "Cancelled", "combo_items": [str(k.id) for k in kids], "approved_by": approver}, reason=reason)
+        return
     status = item.item_status
     if status == "Pending":
-        void_type, approver = None, None
+        approver = None
     elif status == "Sent":
         ctx.require("orders.cancel")
-        void_type, approver = "BeforePreparation", None
+        approver = None
     else:
         # In preparation, ready or served: approval by someone else (BR-006, BR-029)
-        void_type = "AfterPreparation"
         approver = consume_approval(ctx, approval_id, "void", item.line_net, item.id)
-    item.item_status, item.void_type, item.void_reason, item.void_approved_by, item.cancelled_at = "Cancelled", void_type, reason, approver, utcnow()
+    void_type = _void_line(ctx, order, item, reason, approver)
+    db.flush()
+    recalc(ctx, order)
+    paid = paid_total(db, order)
+    if paid > order.grand_total:
+        raise Conflict("REFUND_REQUIRED", "Payments already exceed the new total. Refund first, then cancel the item.")
+    log_event(ctx, order, "item_cancelled", {"item_id": item.id, "status_was": status, "void_type": void_type, "reason": reason})
+    audit(db, ctx, "order.item_void", "OrderItem", item.id, before={"status": status}, after={"status": "Cancelled", "void_type": void_type, "approved_by": approver}, reason=reason)
+
+
+def _void_line(ctx: Ctx, order: Order, item: OrderItem, reason: str, approver) -> str | None:
+    """Cancel one line: stock back if not yet prepared, and a void ticket for the kitchen if it was sent. Permissions are checked by the caller."""
+    db = ctx.db
+    status = item.item_status
+    void_type = None if status == "Pending" else ("BeforePreparation" if status == "Sent" else "AfterPreparation")
+    item.item_status, item.void_type, item.void_reason, item.cancelled_at = "Cancelled", void_type, reason, utcnow()
+    item.void_approved_by = approver if void_type == "AfterPreparation" else None
     if void_type == "BeforePreparation":
         from app.services.recipes import reverse_consumption
 
@@ -417,13 +496,7 @@ def cancel_item(ctx: Ctx, order: Order, item: OrderItem, reason: str, approval_i
         if item.station_code:
             emit(db, f"station:{ctx.branch_id}:{item.station_code}", "kitchen.item.cancelled", {"order_item_id": str(item.id), "order_no": order.order_no,
                                                                                                "prepared": void_type == "AfterPreparation"})
-    db.flush()
-    recalc(ctx, order)
-    paid = paid_total(db, order)
-    if paid > order.grand_total:
-        raise Conflict("REFUND_REQUIRED", "Payments already exceed the new total. Refund first, then cancel the item.")
-    log_event(ctx, order, "item_cancelled", {"item_id": item.id, "status_was": status, "void_type": void_type, "reason": reason})
-    audit(db, ctx, "order.item_void", "OrderItem", item.id, before={"status": status}, after={"status": "Cancelled", "void_type": void_type, "approved_by": approver}, reason=reason)
+    return void_type
 
 
 def cancel_order(ctx: Ctx, order: Order, reason: str, approval_id: uuid.UUID | None) -> None:
@@ -477,6 +550,8 @@ def apply_discount(ctx: Ctx, order: Order, item_id: uuid.UUID | None, kind: str,
         item = find_item(order, item_id)
         if item.item_status == "Cancelled":
             raise Conflict("ITEM_CANCELLED", "This item is cancelled.")
+        if item.parent_item_id or combo_children(order, item):
+            raise BusinessRuleError("COMBO_DISCOUNT", "Combos are already priced as a set. Use an order discount instead.")
         base = item.line_gross
     else:
         calc = calculation(db, order)

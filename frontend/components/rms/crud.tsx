@@ -45,6 +45,8 @@ export interface Field {
   hint?: string
   min?: number
   max?: number
+  /** Shown but not editable (e.g. a code that can't change after creation). */
+  disabled?: boolean
   validate?: (
     v: FieldValue,
     all: Record<string, FieldValue>
@@ -131,6 +133,7 @@ export function RecordForm({
                     max={f.max}
                     step={f.type === "number" ? "any" : undefined}
                     value={String(v)}
+                    disabled={f.disabled}
                     onChange={(e) => setValue(f.name, e.target.value)}
                     aria-invalid={!!errors[f.name] || undefined}
                   />
@@ -189,9 +192,12 @@ export function RecordDialog({
   fields: Field[]
   initial?: Record<string, FieldValue>
   submitLabel?: string
-  onSubmit: (v: Record<string, FieldValue>) => void
+  /** Return a promise to keep the dialog open until it settles; a rejection shows its message in the form. */
+  onSubmit: (v: Record<string, FieldValue>) => void | Promise<unknown>
   wide?: boolean
 }) {
+  const [busy, setBusy] = React.useState(false)
+  const [formError, setFormError] = React.useState("")
   const [values, setValues] = React.useState<Record<string, FieldValue>>(
     initial ?? {}
   )
@@ -202,6 +208,7 @@ export function RecordDialog({
     if (open) {
       setValues(initial ?? {})
       setErrors({})
+      setFormError("")
     }
   }
 
@@ -210,8 +217,14 @@ export function RecordDialog({
     const errs = validateFields(fields, values)
     setErrors(errs)
     if (Object.keys(errs).length) return
-    onSubmit(values)
-    onOpenChange(false)
+    const r = onSubmit(values)
+    if (!(r instanceof Promise)) return onOpenChange(false)
+    setBusy(true)
+    setFormError("")
+    r.then(
+      () => onOpenChange(false),
+      (err: unknown) => setFormError(err instanceof Error ? err.message : "Couldn't save. Check the connection and try again.")
+    ).finally(() => setBusy(false))
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -234,6 +247,11 @@ export function RecordDialog({
             errors={errors}
             setValue={(k, v) => setValues((s) => ({ ...s, [k]: v }))}
           />
+          {formError && (
+            <p role="alert" className="text-sm text-danger">
+              {formError}
+            </p>
+          )}
           <DialogFooter>
             <Button
               type="button"
@@ -242,7 +260,9 @@ export function RecordDialog({
             >
               Cancel
             </Button>
-            <Button type="submit">{submitLabel}</Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Saving…" : submitLabel}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -254,6 +274,8 @@ export function RecordDialog({
 export function CrudTable<T extends { id: string }>({
   noun,
   seed,
+  rows: apiRows,
+  onSave,
   columns,
   fields,
   filters,
@@ -270,7 +292,11 @@ export function CrudTable<T extends { id: string }>({
   description,
 }: {
   noun: string
-  seed: T[]
+  /** Demo mode: rows kept in the page. Ignored when `rows` is given. */
+  seed?: T[]
+  /** API mode: rows loaded from the server; `onSave` writes and the caller reloads. */
+  rows?: T[]
+  onSave?: (v: Record<string, FieldValue>, existing?: T) => Promise<unknown>
   columns: Column<T>[]
   fields: Field[]
   filters?: Filter<T>[]
@@ -278,7 +304,7 @@ export function CrudTable<T extends { id: string }>({
   canAdd?: boolean
   addLabel?: string
   extraActions?: (row: T, update: (patch: Partial<T>) => void) => RowAction<T>[]
-  toRow: (v: Record<string, FieldValue>, existing?: T) => T
+  toRow?: (v: Record<string, FieldValue>, existing?: T) => T
   toForm?: (row: T) => Record<string, FieldValue>
   onRowClick?: (row: T) => void
   pageSize?: number
@@ -286,7 +312,8 @@ export function CrudTable<T extends { id: string }>({
   searchPlaceholder?: string
   description?: string
 }) {
-  const [rows, setRows] = React.useState(seed)
+  const [localRows, setRows] = React.useState(seed ?? [])
+  const rows = apiRows ?? localRows
   const [editing, setEditing] = React.useState<T | null>(null)
   const [open, setOpen] = React.useState(false)
   const defaultForm = (r: T) =>
@@ -357,6 +384,11 @@ export function CrudTable<T extends { id: string }>({
         fields={fields}
         initial={editing ? (toForm ?? defaultForm)(editing) : undefined}
         onSubmit={(v) => {
+          if (onSave)
+            return onSave(v, editing ?? undefined).then(() => {
+              toast.success(`${noun} ${editing ? "updated" : "created"}`)
+            })
+          if (!toRow) return
           const row = toRow(v, editing ?? undefined)
           setRows((rs) =>
             editing

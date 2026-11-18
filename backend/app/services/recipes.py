@@ -164,7 +164,8 @@ def unmapped_items(ctx: Ctx, days: int = 30) -> list[dict]:
     """FR-RCP-010: menu items sold without a recipe in effect."""
     since = ctx.business_date() - timedelta(days=days)
     sold = ctx.db.execute(select(OrderItem.variant_id, OrderItem.item_name_en_snapshot, OrderItem.variant_name_snapshot, func.sum(OrderItem.quantity))
-                          .join(Order).where(Order.branch_id == ctx.branch_id, Order.business_date >= since, OrderItem.item_status != "Cancelled")
+                          .join(Order).join(MenuItem, MenuItem.id == OrderItem.menu_item_id)
+                          .where(Order.branch_id == ctx.branch_id, Order.business_date >= since, OrderItem.item_status != "Cancelled", MenuItem.item_type != "Combo")
                           .group_by(OrderItem.variant_id, OrderItem.item_name_en_snapshot, OrderItem.variant_name_snapshot)).all()
     out = []
     for vid, name, variant, qty in sold:

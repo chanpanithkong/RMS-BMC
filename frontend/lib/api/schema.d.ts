@@ -453,6 +453,24 @@ export interface paths {
         patch: operations["update_item_api_v1_menu_items__item_id__patch"];
         trace?: never;
     };
+    "/api/v1/menu-items/{item_id}/combo-slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Combo Slots */
+        get: operations["get_combo_slots_api_v1_menu_items__item_id__combo_slots_get"];
+        /** Replace a combo's slots (FR-MENU-005); orders already placed keep their items */
+        put: operations["set_combo_slots_api_v1_menu_items__item_id__combo_slots_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/menu-items/{item_id}/prices": {
         parameters: {
             query?: never;
@@ -514,6 +532,93 @@ export interface paths {
         get?: never;
         /** Attach Groups */
         put: operations["attach_groups_api_v1_menu_items__item_id__modifier_groups_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/price-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Price Lists */
+        get: operations["price_lists_api_v1_price_lists_get"];
+        put?: never;
+        /** Then add prices per item with price_list = this code */
+        post: operations["create_price_list_api_v1_price_lists_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/price-lists/{list_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Price List */
+        patch: operations["update_price_list_api_v1_price_lists__list_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/price-lists/{list_id}/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prices in effect now on this list, per item variant */
+        get: operations["price_list_prices_api_v1_price_lists__list_id__prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/menu-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Schedules */
+        get: operations["schedules_api_v1_menu_schedules_get"];
+        put?: never;
+        /** Items on a schedule are sold only while one of their schedules is in effect */
+        post: operations["create_schedule_api_v1_menu_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/menu-schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the schedule's rules and items */
+        put: operations["update_schedule_api_v1_menu_schedules__schedule_id__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1609,7 +1714,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Stock documents of this branch, newest first (adjustments, wastage, issues, receipts without PO) */
+        get: operations["list_documents_api_v1_inventory_documents_get"];
         put?: never;
         /** Draft a receipt (no PO), issue, adjustment, wastage or opening balance */
         post: operations["create_document_api_v1_inventory_documents_post"];
@@ -2328,6 +2434,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clock-in and clock-out records of this branch, newest first (FR-STAFF-004) */
+        get: operations["attendance_api_v1_attendance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employees/{employee_id}/clock-{action}": {
         parameters: {
             query?: never;
@@ -2661,7 +2784,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Count sheets of this branch, newest first (system quantities stay hidden on drafts) */
+        get: operations["list_counts_api_v1_inventory_counts_get"];
         put?: never;
         /** Start a count sheet (blind: system quantities hidden until submitted) */
         post: operations["create_count_api_v1_inventory_counts_post"];
@@ -2746,7 +2870,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Transfers between locations of this branch, newest first */
+        get: operations["list_transfers_api_v1_inventory_transfers_get"];
         put?: never;
         /** Move stock between locations of this branch (FR-INV-007) */
         post: operations["transfer_api_v1_inventory_transfers_post"];
@@ -3090,7 +3215,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Returns to suppliers from this branch, newest first */
+        get: operations["list_returns_api_v1_purchase_returns_get"];
         put?: never;
         /** Create Return */
         post: operations["create_return_api_v1_purchase_returns_post"];
@@ -4488,6 +4614,281 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payment-reconciliation/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Electronic payment methods that can be reconciled */
+        get: operations["rec_methods_api_v1_payment_reconciliation_methods_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation/days": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Days with electronic payments and their reconciliation state */
+        get: operations["rec_days_api_v1_payment_reconciliation_days_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recorded payments vs statement lines for one business day and method */
+        get: operations["rec_view_api_v1_payment_reconciliation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add statement lines; a reference already entered is skipped (no duplicates) */
+        post: operations["rec_add_api_v1_payment_reconciliation_lines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a CSV statement; nothing is imported if any row is invalid */
+        post: operations["rec_import_api_v1_payment_reconciliation_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation/lines/{line_id}/match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Match a statement line to a payment by hand, or unlink it */
+        post: operations["rec_match_api_v1_payment_reconciliation_lines__line_id__match_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation/lines/{line_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove a mistyped statement line while the day is open (audited) */
+        post: operations["rec_remove_api_v1_payment_reconciliation_lines__line_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payment-reconciliation/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lock the day; differences need a note */
+        post: operations["rec_close_api_v1_payment_reconciliation_close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/message-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Text messages and emails with delivery status, attempts and last error */
+        get: operations["message_log_api_v1_message_log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/message-log/{channel}/{message_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a failed message a fresh set of attempts */
+        post: operations["message_retry_api_v1_message_log__channel___message_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mandatory kinds are always on; optional kinds can be muted */
+        get: operations["get_prefs_api_v1_me_notification_preferences_get"];
+        /** Put Prefs */
+        put: operations["put_prefs_api_v1_me_notification_preferences_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expense-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recurring expenses (FR-EXP-008) */
+        get: operations["templates_api_v1_expense_templates_get"];
+        put?: never;
+        /** Creates Draft expenses on its schedule; people still submit them */
+        post: operations["create_template_api_v1_expense_templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expense-templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Template */
+        put: operations["update_template_api_v1_expense_templates__template_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/expense-templates/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create the drafts that are due now for this branch (the worker also does this hourly) */
+        post: operations["generate_templates_api_v1_expense_templates_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/report-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scheduled report emails (FR-RPT-027) */
+        get: operations["report_schedules_api_v1_report_schedules_get"];
+        put?: never;
+        /** Recipients must be able to see the report; they get a sign-in link, not the data */
+        post: operations["create_report_schedule_api_v1_report_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/report-schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Report Schedule */
+        put: operations["update_report_schedule_api_v1_report_schedules__schedule_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -5037,6 +5438,21 @@ export interface components {
              */
             expected_total?: number | string | null;
         };
+        /** CloseIn */
+        CloseIn: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /** Method Code */
+            method_code: string;
+            /**
+             * Note
+             * @description Required when there are differences
+             */
+            note?: string | null;
+        };
         /** CodeIn */
         CodeIn: {
             /** Code */
@@ -5053,6 +5469,103 @@ export interface components {
         CodeRequestIn: {
             /** Phone */
             phone: string;
+        };
+        /** ComboOptionIn */
+        ComboOptionIn: {
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+            /**
+             * Price Delta
+             * @description Extra charge when this item is chosen
+             * @default 0
+             */
+            price_delta: number | string;
+        };
+        /** ComboOptionOut */
+        ComboOptionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+            /**
+             * Menu Item Id
+             * Format: uuid
+             */
+            menu_item_id: string;
+            /** Item Name En */
+            item_name_en: string;
+            /** Item Name Km */
+            item_name_km: string | null;
+            /** Variant Name */
+            variant_name: string;
+            /** Price Delta */
+            price_delta: string;
+            /** Available */
+            available: boolean;
+        };
+        /** ComboPick */
+        ComboPick: {
+            /**
+             * Slot Id
+             * Format: uuid
+             */
+            slot_id: string;
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+        };
+        /** ComboSlotIn */
+        ComboSlotIn: {
+            /** Name En */
+            name_en: string;
+            /** Name Km */
+            name_km?: string | null;
+            /**
+             * Min Select
+             * @default 1
+             */
+            min_select: number;
+            /**
+             * Max Select
+             * @default 1
+             */
+            max_select: number;
+            /** Options */
+            options: components["schemas"]["ComboOptionIn"][];
+        };
+        /** ComboSlotOut */
+        ComboSlotOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name En */
+            name_en: string;
+            /** Name Km */
+            name_km: string | null;
+            /** Min Select */
+            min_select: number;
+            /** Max Select */
+            max_select: number;
+            /** Options */
+            options: components["schemas"]["ComboOptionOut"][];
+        };
+        /** ComboSlotsIn */
+        ComboSlotsIn: {
+            /** Slots */
+            slots: components["schemas"]["ComboSlotIn"][];
         };
         /** CountCreate */
         CountCreate: {
@@ -5352,6 +5865,8 @@ export interface components {
             approved_by: string | null;
             /** Posted At */
             posted_at: string | null;
+            /** Created At */
+            created_at?: string | null;
             /** Lines */
             lines: components["schemas"]["DocLineOut"][];
         };
@@ -5421,6 +5936,53 @@ export interface components {
             currency: "USD" | "KHR";
             /** Payee */
             payee: string;
+        };
+        /** ExpenseTemplateIn */
+        ExpenseTemplateIn: {
+            /**
+             * Day Of Week
+             * @description 0 = Monday
+             */
+            day_of_week?: number | null;
+            /**
+             * Day Of Month
+             * @description Short months use their last day
+             */
+            day_of_month?: number | null;
+            /** Name */
+            name: string;
+            /**
+             * Category Id
+             * Format: uuid
+             */
+            category_id: string;
+            /** Description */
+            description: string;
+            /** Payee */
+            payee: string;
+            /** Amount */
+            amount: number | string;
+            /**
+             * Currency
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD" | "KHR";
+            /**
+             * Frequency
+             * @enum {string}
+             */
+            frequency: "Weekly" | "Monthly";
+            /**
+             * Start Date
+             * @description First date to consider; default today
+             */
+            start_date?: string | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
         };
         /** FeeIn */
         FeeIn: {
@@ -5626,6 +6188,12 @@ export interface components {
              * @default []
              */
             modifiers: components["schemas"]["ModifierPick"][];
+            /**
+             * Combo
+             * @description For combo items: the item chosen for each slot
+             * @default []
+             */
+            combo: components["schemas"]["ComboPick"][];
             /** Seat No */
             seat_no?: number | null;
             /** Note */
@@ -5714,6 +6282,16 @@ export interface components {
             variant_id?: string | null;
             /** Modifier Id */
             modifier_id?: string | null;
+        };
+        /** MatchIn */
+        MatchIn: {
+            /**
+             * Payment Id
+             * @description Null unlinks the line
+             */
+            payment_id?: string | null;
+            /** Note */
+            note: string;
         };
         /** MeOut */
         MeOut: {
@@ -5840,6 +6418,11 @@ export interface components {
             variants: components["schemas"]["VariantOut"][];
             /** Modifier Groups */
             modifier_groups: components["schemas"]["ModifierGroupOut"][];
+            /**
+             * Combo Slots
+             * @default []
+             */
+            combo_slots: components["schemas"]["ComboSlotOut"][];
         };
         /** MenuItemUpdate */
         MenuItemUpdate: {
@@ -6200,6 +6783,13 @@ export interface components {
             version: number;
             /** Modifiers */
             modifiers: components["schemas"]["ItemModifierOut"][];
+            /**
+             * Parent Item Id
+             * @description Set on the items inside a combo; the combo line itself has price 0
+             */
+            parent_item_id?: string | null;
+            /** Combo Slot Name */
+            combo_slot_name?: string | null;
         };
         /** OrderOut */
         OrderOut: {
@@ -6587,6 +7177,13 @@ export interface components {
             /** Items */
             items: components["schemas"]["ItemIn"][];
         };
+        /** PrefsIn */
+        PrefsIn: {
+            /** Preferences */
+            preferences: {
+                [key: string]: boolean;
+            };
+        };
         /** PriceIn */
         PriceIn: {
             /**
@@ -6613,6 +7210,109 @@ export interface components {
              * @description Price list code; default from billing settings
              */
             price_list?: string | null;
+        };
+        /** PriceListIn */
+        PriceListIn: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /**
+             * Priority
+             * @description Higher wins when several automatic lists apply
+             * @default 10
+             */
+            priority: number;
+            /**
+             * Days Of Week
+             * @description 0 = Monday; empty = every day
+             * @default []
+             */
+            days_of_week: number[];
+            /** Time From */
+            time_from?: string | null;
+            /** Time To */
+            time_to?: string | null;
+            /**
+             * Channels
+             * @default []
+             */
+            channels: ("POS" | "Online" | "QR" | "Platform")[];
+            /**
+             * Order Types
+             * @default []
+             */
+            order_types: ("DineIn" | "Takeaway" | "Delivery")[];
+            /**
+             * Branch Ids
+             * @description Empty = every branch
+             * @default []
+             */
+            branch_ids: string[];
+            /**
+             * Auto Apply
+             * @description False = used only where chosen explicitly (e.g. the online price list setting)
+             * @default true
+             */
+            auto_apply: boolean;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+        };
+        /** PriceListOut */
+        PriceListOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Priority */
+            priority: number;
+            /** Days Of Week */
+            days_of_week: number[];
+            /** Time From */
+            time_from: string | null;
+            /** Time To */
+            time_to: string | null;
+            /** Channels */
+            channels: string[];
+            /** Order Types */
+            order_types: string[];
+            /** Branch Ids */
+            branch_ids: string[];
+            /** Auto Apply */
+            auto_apply: boolean;
+        };
+        /** PriceListPatch */
+        PriceListPatch: {
+            /** Name */
+            name?: string | null;
+            /** Priority */
+            priority?: number | null;
+            /** Days Of Week */
+            days_of_week?: number[] | null;
+            /** Time From */
+            time_from?: string | null;
+            /** Time To */
+            time_to?: string | null;
+            /** Channels */
+            channels?: ("POS" | "Online" | "QR" | "Platform")[] | null;
+            /** Order Types */
+            order_types?: ("DineIn" | "Takeaway" | "Delivery")[] | null;
+            /** Branch Ids */
+            branch_ids?: string[] | null;
+            /** Auto Apply */
+            auto_apply?: boolean | null;
+            /** Is Active */
+            is_active?: boolean | null;
         };
         /** PriceOut */
         PriceOut: {
@@ -6932,6 +7632,41 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** ReportScheduleIn */
+        ReportScheduleIn: {
+            /**
+             * Day Of Week
+             * @description 0 = Monday
+             */
+            day_of_week?: number | null;
+            /**
+             * Day Of Month
+             * @description Short months use their last day
+             */
+            day_of_month?: number | null;
+            /** Report Id */
+            report_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Frequency
+             * @enum {string}
+             */
+            frequency: "Daily" | "Weekly" | "Monthly";
+            /**
+             * Hour
+             * @description Branch local time
+             * @default 7
+             */
+            hour: number;
+            /** Recipient Ids */
+            recipient_ids: string[];
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+        };
         /** RequestIn */
         RequestIn: {
             /** Lines */
@@ -7103,6 +7838,70 @@ export interface components {
             /** Permissions */
             permissions: string[];
         };
+        /** ScheduleIn */
+        ScheduleIn: {
+            /** Name */
+            name: string;
+            /**
+             * Days Of Week
+             * @description 0 = Monday; empty = every day
+             * @default []
+             */
+            days_of_week: number[];
+            /** Time From */
+            time_from?: string | null;
+            /** Time To */
+            time_to?: string | null;
+            /** Date From */
+            date_from?: string | null;
+            /** Date To */
+            date_to?: string | null;
+            /**
+             * Branch Ids
+             * @description Empty = every branch
+             * @default []
+             */
+            branch_ids: string[];
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /**
+             * Item Ids
+             * @default []
+             */
+            item_ids: string[];
+        };
+        /** ScheduleOut */
+        ScheduleOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Days Of Week */
+            days_of_week: number[];
+            /** Time From */
+            time_from: string | null;
+            /** Time To */
+            time_to: string | null;
+            /** Date From */
+            date_from: string | null;
+            /** Date To */
+            date_to: string | null;
+            /** Branch Ids */
+            branch_ids: string[];
+            /** Is Active */
+            is_active: boolean;
+            /**
+             * Item Ids
+             * @default []
+             */
+            item_ids: string[];
+        };
         /** SeatIn */
         SeatIn: {
             /** Guest Count */
@@ -7232,6 +8031,48 @@ export interface components {
             state: "Available" | "Reserved" | "Seated" | "Ordering" | "Served" | "AwaitingPayment" | "Cleaning";
             /** Version */
             version?: number | null;
+        };
+        /** StatementImportIn */
+        StatementImportIn: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /** Method Code */
+            method_code: string;
+            /**
+             * Csv
+             * @description Header row with reference,amount[,currency][,received_at]
+             */
+            csv: string;
+        };
+        /** StatementIn */
+        StatementIn: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /** Method Code */
+            method_code: string;
+            /** Lines */
+            lines: components["schemas"]["StatementLineIn"][];
+        };
+        /** StatementLineIn */
+        StatementLineIn: {
+            /** Reference */
+            reference: string;
+            /** Amount */
+            amount: number | string;
+            /**
+             * Currency
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD" | "KHR";
+            /** Received At */
+            received_at?: string | null;
         };
         /** StationIn */
         StationIn: {
@@ -7820,6 +8661,16 @@ export interface components {
             is_active: boolean;
             /** Price */
             price?: string | null;
+            /**
+             * Regular Price
+             * @description Set when a time-based price list (e.g. happy hour) is in effect: the normal price
+             */
+            regular_price?: string | null;
+            /**
+             * Price List
+             * @description Name of the time-based price list in effect, if any
+             */
+            price_list?: string | null;
         };
         /** VerifyIn */
         VerifyIn: {
@@ -7998,6 +8849,22 @@ export interface components {
             results: {
                 [key: string]: unknown;
             }[] | null;
+            /** User Name */
+            user_name?: string | null;
+            /** Approved By Name */
+            approved_by_name?: string | null;
+            /**
+             * Movements
+             * @default []
+             */
+            movements: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** ReasonIn */
+        app__api__v1__endpoints__operations__ReasonIn: {
+            /** Reason */
+            reason: string;
         };
         /** RedeemIn */
         app__api__v1__endpoints__promotions__RedeemIn: {
@@ -9284,6 +10151,78 @@ export interface operations {
             };
         };
     };
+    get_combo_slots_api_v1_menu_items__item_id__combo_slots_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComboSlotOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_combo_slots_api_v1_menu_items__item_id__combo_slots_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComboSlotsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComboSlotOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_price_api_v1_menu_items__item_id__prices_post: {
         parameters: {
             query?: never;
@@ -9419,6 +10358,252 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MenuItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    price_lists_api_v1_price_lists_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceListOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_price_list_api_v1_price_lists_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceListIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_price_list_api_v1_price_lists__list_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                list_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceListPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    price_list_prices_api_v1_price_lists__list_id__prices_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                list_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedules_api_v1_menu_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_schedule_api_v1_menu_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_schedule_api_v1_menu_schedules__schedule_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
                 };
             };
             /** @description Validation Error */
@@ -12068,6 +13253,42 @@ export interface operations {
             };
         };
     };
+    list_documents_api_v1_inventory_documents_get: {
+        parameters: {
+            query?: {
+                doc_type?: string | null;
+                status?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_document_api_v1_inventory_documents_post: {
         parameters: {
             query?: never;
@@ -13992,6 +15213,41 @@ export interface operations {
             };
         };
     };
+    attendance_api_v1_attendance_get: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     clock_api_v1_employees__employee_id__clock__action__post: {
         parameters: {
             query?: never;
@@ -14782,6 +16038,40 @@ export interface operations {
             };
         };
     };
+    list_counts_api_v1_inventory_counts_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_count_api_v1_inventory_counts_post: {
         parameters: {
             query?: never;
@@ -14941,6 +16231,38 @@ export interface operations {
                 "application/json": components["schemas"]["app__api__v1__endpoints__recipes_stock__DecisionIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_transfers_api_v1_inventory_transfers_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -15779,6 +17101,38 @@ export interface operations {
             path: {
                 gr_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_returns_api_v1_purchase_returns_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -19044,6 +20398,676 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_methods_api_v1_payment_reconciliation_methods_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_days_api_v1_payment_reconciliation_days_get: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_view_api_v1_payment_reconciliation_get: {
+        parameters: {
+            query: {
+                business_date: string;
+                method_code: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_add_api_v1_payment_reconciliation_lines_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_import_api_v1_payment_reconciliation_import_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatementImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_match_api_v1_payment_reconciliation_lines__line_id__match_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_remove_api_v1_payment_reconciliation_lines__line_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__api__v1__endpoints__operations__ReasonIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rec_close_api_v1_payment_reconciliation_close_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    message_log_api_v1_message_log_get: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+                channel?: ("SMS" | "Email") | null;
+                status?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    message_retry_api_v1_message_log__channel___message_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                channel: "SMS" | "Email";
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prefs_api_v1_me_notification_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_prefs_api_v1_me_notification_preferences_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrefsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    templates_api_v1_expense_templates_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_template_api_v1_expense_templates_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseTemplateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_template_api_v1_expense_templates__template_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseTemplateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_templates_api_v1_expense_templates_generate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_schedules_api_v1_report_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_report_schedule_api_v1_report_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_report_schedule_api_v1_report_schedules__schedule_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportScheduleIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

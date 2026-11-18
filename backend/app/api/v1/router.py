@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import accounting, analytics, auth, branches, config, credit, delivery, grabfood, loyalty, online, front, inventory, kitchen_tables, menu, money, orders, platform, promotions, purchasing, recipes_stock, reports_ws, staff_expenses, users
+from app.api.v1.endpoints import accounting, analytics, auth, branches, config, credit, delivery, grabfood, loyalty, online, front, inventory, kitchen_tables, menu, money, operations, orders, platform, promotions, purchasing, recipes_stock, reports_ws, staff_expenses, users
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
@@ -37,3 +37,4 @@ api_router.include_router(grabfood.grab)
 api_router.include_router(grabfood.router)
 api_router.include_router(credit.router)
 api_router.include_router(analytics.router)
+api_router.include_router(operations.router)

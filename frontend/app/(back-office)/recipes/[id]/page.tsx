@@ -1,143 +1,158 @@
 "use client"
 
 import * as React from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { Lock, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { confirmAction } from "@/components/rms/dialog-host"
-import {
-  FormRow,
-  KV,
-  Notice,
-  Page,
-  PageHeader,
-  Panel,
-  SimpleSelect,
-  StatusBadge,
-  opts,
-} from "@/components/rms/kit"
+import { FormRow, KV, Notice, Page, PageHeader, Panel, SimpleSelect, StatusBadge } from "@/components/rms/kit"
+import { listItems } from "@/lib/api/menu"
+import * as rcp from "@/lib/api/recipes"
+import { apiMessage, num, useApi, when } from "@/lib/api/use-api"
 import { usd } from "@/lib/rms/billing"
-import { ingredients, recipes } from "@/lib/rms/back-office"
-import { useRms } from "@/lib/rms/store"
 
 interface Line {
-  id: string
+  key: string
   ingredient: string
   qty: string
   unit: string
   prep: string
   cook: string
 }
-const dims: Record<string, string> = {
-  g: "mass",
-  kg: "mass",
-  ml: "volume",
-  L: "volume",
-  piece: "count",
-}
-const toBase: Record<string, number> = {
-  g: 0.001,
-  kg: 1,
-  ml: 0.001,
-  L: 1,
-  piece: 1,
+
+async function loadEditor(id: string) {
+  const [ingredients, units, items, recipe] = await Promise.all([
+    rcp.listIngredients(),
+    rcp.listUnits(),
+    listItems(),
+    id === "new" ? Promise.resolve(null) : rcp.getRecipe(id),
+  ])
+  const version = recipe ? rcp.currentVersion(recipe) : undefined
+  const cost = version ? await rcp.versionCost(version.id).catch(() => null) : null
+  const food = recipe?.active_version_id ? await rcp.recipeCost(recipe.id).catch(() => null) : null
+  return { ingredients, units, items, recipe, version, cost, food }
 }
 
 export default function RecipeEditorPage() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
-  const { menu } = useRms()
-  const r = recipes.find((x) => x.id === id)
-  const [item, setItem] = React.useState(r?.item ?? "")
-  const [yieldN, setYield] = React.useState(String(r?.yield ?? 1))
-  const [method, setMethod] = React.useState("")
-  const [lines, setLines] = React.useState<Line[]>(
-    r?.lines ?? [
-      { id: "n0", ingredient: "", qty: "", unit: "g", prep: "0", cook: "0" },
-    ]
-  )
-  const locked = r?.status === "Active"
-  const price = menu.find((m) => m.name === item)?.price ?? r?.price ?? 0
+  const { data, loading, reload } = useApi(() => loadEditor(id), [id], null)
+  if (loading || !data) return <Page><PageHeader title="Recipe" description="Loading…" /></Page>
+  if (id !== "new" && !data.recipe) return <Page><PageHeader title="Recipe not found" /></Page>
+  return <Editor key={`${data.version?.id ?? "new"}-${data.version?.status ?? ""}`} data={data} reload={reload} />
+}
 
-  const calc = lines.map((l) => {
-    const ing = ingredients.find((i) => i.name === l.ingredient)
-    const compatible = !ing || dims[l.unit] === dims[ing.unit]
-    const loss = Math.min(Number(l.prep) + Number(l.cook), 90) / 100
-    const gross = (Number(l.qty) || 0) / (1 - loss)
-    const stockQty =
-      ing && compatible ? (gross * toBase[l.unit]) / toBase[ing.unit] : 0
-    return {
-      ...l,
-      compatible,
-      gross,
-      stockUnit: ing?.unit,
-      cost: stockQty * (ing?.cost ?? 0),
-      lossErr: Number(l.prep) + Number(l.cook) > 90,
-    }
+function Editor({ data, reload }: { data: Awaited<ReturnType<typeof loadEditor>>; reload: () => void }) {
+  const router = useRouter()
+  const preset = useSearchParams().get("variant") ?? ""
+  const { ingredients, units, items, recipe, version, cost, food } = data
+  const locked = !!version && version.status !== "Draft"
+  const unitById = Object.fromEntries(units.map((u) => [u.id, u]))
+  const ingById = Object.fromEntries(ingredients.map((i) => [i.id, i]))
+
+  // Variants that can get a recipe: one option per item size.
+  const variantOpts = items.flatMap((m) =>
+    m.raw.variants
+      .filter((v) => v.is_active)
+      .map((v) => ({ value: v.id, label: v.name_en === "Regular" ? m.name : `${m.name} (${v.name_en})` }))
+  )
+  const [variant, setVariant] = React.useState(recipe?.variant_id ?? preset)
+  const [yieldN, setYield] = React.useState(version?.yield_qty ? String(num(version.yield_qty)) : "1")
+  const [method, setMethod] = React.useState(version?.method_text ?? "")
+  const [lines, setLines] = React.useState<Line[]>(
+    version?.lines.map((l, i) => ({
+      key: `l${i}`,
+      ingredient: l.ingredient_id,
+      qty: String(num(l.quantity)),
+      unit: l.uom_id,
+      prep: String(num(l.prep_loss_pct)),
+      cook: String(num(l.cook_loss_pct)),
+    })) ?? [{ key: "n0", ingredient: "", qty: "", unit: "", prep: "0", cook: "0" }]
+  )
+  const [busy, setBusy] = React.useState(false)
+
+  const checked = lines.map((l) => {
+    const ing = ingById[l.ingredient]
+    const stock = ing ? unitById[ing.stock_uom_id] : undefined
+    const unit = unitById[l.unit]
+    const compatible = !stock || !unit || stock.dimension === unit.dimension
+    const lossErr = Number(l.prep) + Number(l.cook) > 90
+    return { ...l, compatible, lossErr, stockUnit: stock?.code }
   })
-  const batch = calc.reduce((s, l) => s + l.cost, 0)
-  const portion = batch / (Number(yieldN) || 1)
-  const pct = price ? (portion / price) * 100 : 0
   const invalid =
-    !item ||
-    calc.some(
-      (l) => !l.ingredient || !(Number(l.qty) > 0) || !l.compatible || l.lossErr
-    )
-  const update = (i: string, patch: Partial<Line>) =>
-    setLines(lines.map((l) => (l.id === i ? { ...l, ...patch } : l)))
-  const unmappedOpts = opts(...menu.map((m) => m.name))
+    !variant ||
+    !(Number(yieldN) > 0) ||
+    checked.some((l) => !l.ingredient || !l.unit || !(Number(l.qty) > 0) || !l.compatible || l.lossErr)
+  const update = (key: string, patch: Partial<Line>) => setLines(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+  const payload = () => ({
+    yield_qty: yieldN,
+    method_text: method || undefined,
+    lines: lines.map((l) => ({ ingredient_id: l.ingredient, quantity: l.qty, uom_id: l.unit, prep_loss_pct: l.prep || "0", cook_loss_pct: l.cook || "0" })),
+  })
+
+  /** Save the draft (creating the recipe and version as needed). Returns the version id. */
+  const saveDraft = async () => {
+    if (version && version.status === "Draft") return (await rcp.updateDraft(version.id, payload())).id
+    const r = recipe ?? (await rcp.createRecipe(variant))
+    const v = await rcp.addVersion(r.id, payload())
+    if (!recipe) router.replace(`/recipes/${r.id}`)
+    return v.id
+  }
+  const run = async (fn: () => Promise<unknown>, done: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      toast.success(done)
+      reload()
+    } catch (e) {
+      toast.error(apiMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  /** A published version is never edited: copy it into a new draft (FR-RCP-005). */
+  const newVersion = () =>
+    run(async () => {
+      await rcp.addVersion(recipe!.id, {
+        yield_qty: version!.yield_qty,
+        method_text: version!.method_text ?? undefined,
+        lines: version!.lines,
+      })
+    }, `Draft v${(recipe!.versions.length || 0) + 1} created from this version`)
+
+  const portion = num(cost?.cost_per_portion)
+  const price = food?.selling_price_ex_tax ? num(food.selling_price_ex_tax) : null
 
   return (
     <Page>
       <PageHeader
-        title={r ? `${r.item} recipe` : "New recipe"}
-        description={
-          r
-            ? `${r.variant} · ${r.portion}`
-            : "Add ingredients to see the cost per portion."
-        }
+        title={recipe ? `${recipe.name} recipe` : "New recipe"}
+        description={recipe ? `Version ${version?.version_no ?? "—"}` : "Choose the item, add ingredients, then save a draft to see the cost."}
         actions={
           <>
-            {r && (
-              <StatusBadge
-                status={r.status === "Active" ? "Published" : r.status}
-              />
-            )}
+            {version && <StatusBadge status={version.status} />}
             {locked ? (
-              <Button
-                onClick={() => {
-                  toast.success("Draft v-next created from this version")
-                  router.push("/recipes/new")
-                }}
-              >
+              <Button disabled={busy} onClick={() => void newVersion()}>
                 New version
               </Button>
             ) : (
               <>
-                <Button
-                  variant="outline"
-                  disabled={!item}
-                  onClick={() => {
-                    toast.success("Draft saved")
-                    router.push("/recipes")
-                  }}
-                >
+                <Button variant="outline" disabled={invalid || busy} onClick={() => void run(saveDraft, "Draft saved")}>
                   Save draft
                 </Button>
                 <Button
-                  disabled={invalid}
+                  disabled={invalid || busy}
                   onClick={() =>
                     confirmAction({
                       title: "Publish this version?",
-                      effect:
-                        "Published versions can't be edited. Sales will consume ingredients from this version from now on.",
+                      effect: "Published versions can't be edited. Sales will consume ingredients from this version from now on.",
                       confirmLabel: "Publish",
-                      onConfirm: () => {
-                        toast.success("Recipe published")
-                        router.push("/recipes")
-                      },
+                      onConfirm: () =>
+                        void run(async () => {
+                          const vid = await saveDraft()
+                          await rcp.publish(vid)
+                        }, "Recipe published"),
                     })
                   }
                 >
@@ -148,11 +163,13 @@ export default function RecipeEditorPage() {
           </>
         }
       />
-      {r && (
+      {version && (
         <Notice tone={locked ? "info" : "warning"}>
           <span className="flex items-center gap-1.5">
-            {locked && <Lock className="size-3.5" />}Version {r.version} ·{" "}
-            {r.status} · last changed {r.updated} by {r.by}
+            {locked && <Lock className="size-3.5" />}Version {version.version_no} · {version.status}
+            {version.published_at && ` · published ${when(version.published_at)}`}
+            {version.status === "Published" && version.id !== recipe?.active_version_id && version.effective_from &&
+              ` · takes effect ${when(version.effective_from)}`}
           </span>
         </Notice>
       )}
@@ -163,20 +180,15 @@ export default function RecipeEditorPage() {
               <FormRow label="Menu item" required>
                 <SimpleSelect
                   aria-label="Menu item"
-                  value={item}
-                  onChange={setItem}
-                  options={unmappedOpts}
+                  value={variant}
+                  onChange={setVariant}
+                  disabled={!!recipe}
+                  options={variantOpts}
                   placeholder="Select…"
                 />
               </FormRow>
               <FormRow label="Yield (portions)" required htmlFor="yield">
-                <Input
-                  id="yield"
-                  disabled={locked}
-                  inputMode="numeric"
-                  value={yieldN}
-                  onChange={(e) => setYield(e.target.value)}
-                />
+                <Input id="yield" disabled={locked} inputMode="decimal" value={yieldN} onChange={(e) => setYield(e.target.value)} />
               </FormRow>
             </div>
           </Panel>
@@ -186,19 +198,7 @@ export default function RecipeEditorPage() {
               !locked && (
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    setLines([
-                      ...lines,
-                      {
-                        id: `n${lines.length}-${Date.now()}`,
-                        ingredient: "",
-                        qty: "",
-                        unit: "g",
-                        prep: "0",
-                        cook: "0",
-                      },
-                    ])
-                  }
+                  onClick={() => setLines([...lines, { key: `n${Date.now()}`, ingredient: "", qty: "", unit: "", prep: "0", cook: "0" }])}
                 >
                   <Plus />
                   Add line
@@ -212,74 +212,45 @@ export default function RecipeEditorPage() {
                   <tr>
                     <th className="p-1.5 font-medium">Ingredient</th>
                     <th className="w-20 p-1.5 font-medium">Net qty</th>
-                    <th className="w-24 p-1.5 font-medium">Unit</th>
+                    <th className="w-28 p-1.5 font-medium">Unit</th>
                     <th className="w-16 p-1.5 font-medium">Prep %</th>
                     <th className="w-16 p-1.5 font-medium">Cook %</th>
-                    <th className="p-1.5 text-right font-medium">Gross</th>
-                    <th className="p-1.5 text-right font-medium">Cost</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {calc.map((l) => (
-                    <React.Fragment key={l.id}>
+                  {checked.map((l) => (
+                    <React.Fragment key={l.key}>
                       <tr className="border-t">
                         <td className="p-1.5">
                           <SimpleSelect
                             aria-label="Ingredient"
+                            disabled={locked}
                             value={l.ingredient}
-                            onChange={(v) => update(l.id, { ingredient: v })}
-                            options={opts(...ingredients.map((i) => i.name))}
+                            onChange={(v) => update(l.key, { ingredient: v, unit: l.unit || ingById[v]?.stock_uom_id || "" })}
+                            options={ingredients.filter((i) => i.is_active || i.id === l.ingredient).map((i) => ({ value: i.id, label: i.name_en }))}
                             placeholder="Search…"
                           />
                         </td>
                         <td className="p-1.5">
-                          <Input
-                            aria-label="Quantity"
-                            disabled={locked}
-                            inputMode="decimal"
-                            value={l.qty}
-                            onChange={(e) =>
-                              update(l.id, { qty: e.target.value })
-                            }
-                          />
+                          <Input aria-label="Quantity" disabled={locked} inputMode="decimal" value={l.qty} onChange={(e) => update(l.key, { qty: e.target.value })} />
                         </td>
                         <td className="p-1.5">
                           <SimpleSelect
                             aria-label="Unit"
+                            disabled={locked}
                             invalid={!l.compatible}
                             value={l.unit}
-                            onChange={(v) => update(l.id, { unit: v })}
-                            options={opts("g", "kg", "ml", "L", "piece")}
+                            onChange={(v) => update(l.key, { unit: v })}
+                            options={units.map((u) => ({ value: u.id, label: u.code }))}
+                            placeholder="Unit"
                           />
                         </td>
                         <td className="p-1.5">
-                          <Input
-                            aria-label="Preparation loss"
-                            disabled={locked}
-                            inputMode="decimal"
-                            value={l.prep}
-                            onChange={(e) =>
-                              update(l.id, { prep: e.target.value })
-                            }
-                          />
+                          <Input aria-label="Preparation loss" disabled={locked} inputMode="decimal" value={l.prep} onChange={(e) => update(l.key, { prep: e.target.value })} />
                         </td>
                         <td className="p-1.5">
-                          <Input
-                            aria-label="Cooking loss"
-                            disabled={locked}
-                            inputMode="decimal"
-                            value={l.cook}
-                            onChange={(e) =>
-                              update(l.id, { cook: e.target.value })
-                            }
-                          />
-                        </td>
-                        <td className="tabular p-1.5 text-right">
-                          {l.gross.toFixed(1)} {l.unit}
-                        </td>
-                        <td className="tabular p-1.5 text-right">
-                          {usd(l.cost)}
+                          <Input aria-label="Cooking loss" disabled={locked} inputMode="decimal" value={l.cook} onChange={(e) => update(l.key, { cook: e.target.value })} />
                         </td>
                         <td>
                           {!locked && (
@@ -287,9 +258,8 @@ export default function RecipeEditorPage() {
                               variant="ghost"
                               size="icon-sm"
                               aria-label="Remove line"
-                              onClick={() =>
-                                setLines(lines.filter((x) => x.id !== l.id))
-                              }
+                              disabled={lines.length === 1}
+                              onClick={() => setLines(lines.filter((x) => x.key !== l.key))}
                             >
                               <Trash2 />
                             </Button>
@@ -298,21 +268,14 @@ export default function RecipeEditorPage() {
                       </tr>
                       {!l.compatible && (
                         <tr>
-                          <td
-                            colSpan={8}
-                            className="px-1.5 pb-1.5 text-xs text-danger"
-                          >
-                            {l.unit} can&apos;t be converted to {l.stockUnit}.
-                            Pick a compatible unit.
+                          <td colSpan={6} className="px-1.5 pb-1.5 text-xs text-danger">
+                            {unitById[l.unit]?.code} can&apos;t be converted to {l.stockUnit}. Pick a compatible unit.
                           </td>
                         </tr>
                       )}
                       {l.lossErr && (
                         <tr>
-                          <td
-                            colSpan={8}
-                            className="px-1.5 pb-1.5 text-xs text-danger"
-                          >
+                          <td colSpan={6} className="px-1.5 pb-1.5 text-xs text-danger">
                             Total loss can&apos;t be more than 90%.
                           </td>
                         </tr>
@@ -335,24 +298,37 @@ export default function RecipeEditorPage() {
           </Panel>
         </div>
         <Panel title="Cost per portion" className="lg:sticky lg:top-18">
-          <p className="tabular text-3xl font-semibold">{usd(portion)}</p>
-          <KV
-            className="mt-3"
-            items={[
-              ["Selling price", usd(price)],
-              [
-                "Food cost",
-                <span key="p" className={pct > 35 ? "text-danger" : ""}>
-                  {pct.toFixed(1)}%
-                </span>,
-              ],
-              ["Gross margin", usd(price - portion)],
-              ["Batch cost", usd(batch)],
-            ]}
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            Uses weighted average ingredient costs as of 08/11/2026.
-          </p>
+          {cost ? (
+            <>
+              <p className="tabular text-3xl font-semibold">{usd(portion)}</p>
+              <KV
+                className="mt-3"
+                items={[
+                  ...(price !== null
+                    ? ([
+                        ["Selling price excl. tax", usd(price)],
+                        [
+                          "Food cost",
+                          <span key="p" className={food?.above_target ? "text-danger" : ""}>
+                            {food?.food_cost_pct}%
+                          </span>,
+                        ],
+                        ["Gross margin", usd(num(food?.gross_margin))],
+                      ] as [string, React.ReactNode][])
+                    : []),
+                  ...cost.lines.map((l) => [l.ingredient, l.cost_missing ? "No cost yet" : usd(num(l.cost))] as [string, React.ReactNode]),
+                ]}
+              />
+              {cost.incomplete && (
+                <p className="mt-2 text-xs text-warning">Some ingredients have no cost yet, so this is incomplete.</p>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Version {cost.version_no} at current weighted average costs.{price === null && " Food cost % shows once a version is in effect."}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Save a draft to see the cost.</p>
+          )}
         </Panel>
       </div>
     </Page>

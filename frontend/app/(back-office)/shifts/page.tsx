@@ -222,7 +222,7 @@ export default function ShiftsPage() {
       {tab === "session" &&
         (result ? (
           <Panel
-            title={`Session ${result.id} counted`}
+            title={`${result.cashier} · session counted`}
             description="Expected cash is revealed only after the count is submitted."
             className="max-w-2xl"
           >
@@ -289,7 +289,7 @@ export default function ShiftsPage() {
           </Panel>
         ) : closing && session ? (
           <Panel
-            title={`Close session ${session.id}`}
+            title="Close your session"
             description="Count each denomination. The expected amount stays hidden until you submit."
             className="max-w-3xl"
           >
@@ -417,7 +417,6 @@ export default function ShiftsPage() {
           rows={sessions.flatMap((s) =>
             s.movements.map((m) => ({
               ...m,
-              session: s.id,
               cashier: s.cashier,
             }))
           )}
@@ -430,7 +429,6 @@ export default function ShiftsPage() {
           }
           columns={[
             { key: "time", header: "Time" },
-            { key: "session", header: "Session" },
             { key: "cashier", header: "Cashier" },
             { key: "kind", header: "Type" },
             {

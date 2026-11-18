@@ -4,6 +4,7 @@ Run:  celery -A app.workers.celery_app worker -B -l info   (needs REDIS_URL)
 """
 import logging
 import os
+from datetime import timedelta
 
 from celery import Celery
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from app.core.config import get_settings
 from app.core.database import session_factory
 from app.integrations.email import EmailSender
 from app.models import OutboxEvent
+from app.services.messages import failed_filter
 from app.services.platform import notify_permission, verify_audit_chain
 from app.utils.timeutil import utcnow
 
@@ -28,25 +30,35 @@ celery.conf.beat_schedule = {
     "reservation-reminders": {"task": "app.workers.celery_app.reservation_reminders", "schedule": 300.0},
     "analytics-refresh": {"task": "app.workers.celery_app.refresh_analytics", "schedule": 900.0},
     "report-jobs": {"task": "app.workers.celery_app.process_report_jobs", "schedule": 10.0},
+    "report-schedules": {"task": "app.workers.celery_app.run_report_schedules", "schedule": 60.0},
+    "recurring-expenses": {"task": "app.workers.celery_app.generate_recurring_expenses", "schedule": 3600.0},
 }
-MAX_ATTEMPTS = int(os.environ.get("OUTBOX_MAX_ATTEMPTS", "8"))
+MAX_ATTEMPTS = int(os.environ.get("OUTBOX_MAX_ATTEMPTS", "8"))  # configurable limit (FR-NOTIF-013)
+BACKOFF_SECONDS = int(os.environ.get("OUTBOX_BACKOFF_SECONDS", "30"))
 
 
-def handle(event: OutboxEvent, mailer: EmailSender) -> None:
+def handle(event: OutboxEvent, mailer: EmailSender) -> str | None:
+    """Delivers one event; for emails returns the delivery status shown in the log (FR-NOTIF-013)."""
     if event.event_type == "email.password_reset":
         link = f"{get_settings().FRONTEND_URL}/reset-password?token={event.payload['token']}"
         if event.payload.get("email"):
-            mailer.send(event.payload["email"], "Reset your RMS password", f"Use this link within 30 minutes:\n{link}\n\nIf you didn't ask for this, ignore this email.")
+            return mailer.send(event.payload["email"], "Reset your RMS password", f"Use this link within 30 minutes:\n{link}\n\nIf you didn't ask for this, ignore this email.")
+    elif event.event_type == "email.scheduled_report":  # FR-RPT-027: a link only; the file stays behind sign-in and the recipient's permissions
+        p = event.payload
+        site = get_settings().FRONTEND_URL.split(",")[0].rstrip("/")
+        return mailer.send(p["email"], f"{p['report']} is ready",
+                           f"Your scheduled report \"{p['schedule']}\" for {p['period']} is ready.\n"
+                           f"Download it after signing in: {site}/reports?tab=jobs\nThe download is available for 24 hours.")
     elif event.event_type == "email.purchase_order":
-        mailer.send(event.payload["email"], f"Purchase order {event.payload['po_no']}", purchase_order_text(event.payload))
+        return mailer.send(event.payload["email"], f"Purchase order {event.payload['po_no']}", purchase_order_text(event.payload))
     elif event.event_type == "email.online_order_confirmation":  # FR-ONL-008
         p = event.payload
-        mailer.send(p["email"], f"Order {p['order_no']} received – {p['branch']}",
+        return mailer.send(p["email"], f"Order {p['order_no']} received – {p['branch']}",
                     f"Thank you. We've received your {p['fulfilment'].lower()} order {p['order_no']} for {p['total']} {p['currency']}.\n"
                     f"Follow it here: {p['tracking_url']}\n\nThe link stops working after a while for your privacy.")
     elif event.event_type == "email.online_order_rejected":
         p = event.payload
-        mailer.send(p["email"], f"Order {p['order_no']} couldn't be accepted – {p['branch']}",
+        return mailer.send(p["email"], f"Order {p['order_no']} couldn't be accepted – {p['branch']}",
                     f"Sorry, {p['branch']} couldn't accept order {p['order_no']}: {p['reason']}.")
     elif event.event_type == "grabfood.order_state":  # manual acceptance answer (within Grab's 5 minutes)
         from app.integrations import grabfood
@@ -67,6 +79,7 @@ def handle(event: OutboxEvent, mailer: EmailSender) -> None:
     else:
         # Not delivered: leave it unprocessed and visible rather than dropping it silently.
         raise ValueError(f"No outbox handler for {event.event_type}")
+    return None
 
 
 def purchase_order_text(p: dict) -> str:
@@ -87,15 +100,19 @@ def process_outbox(batch: int = 50) -> int:
     mailer = EmailSender()
     done = 0
     with session_factory()() as db:
-        rows = db.scalars(select(OutboxEvent).where(OutboxEvent.processed_at.is_(None), OutboxEvent.attempts < MAX_ATTEMPTS)
+        rows = db.scalars(select(OutboxEvent).where(failed_filter(), OutboxEvent.attempts < MAX_ATTEMPTS)
                           .order_by(OutboxEvent.created_at).limit(batch).with_for_update(skip_locked=True)).all()
         for e in rows:
             try:
-                handle(e, mailer)
-                e.processed_at = utcnow()
+                e.delivery_status = handle(e, mailer)
+                e.processed_at, e.last_error = utcnow(), None
                 done += 1
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - kept on the row for the delivery log
                 e.attempts += 1
+                e.last_error = str(exc)[:500]
+                e.next_attempt_at = utcnow() + timedelta(seconds=BACKOFF_SECONDS * 2 ** (e.attempts - 1))  # 30 s, 1, 2, 4 … minutes
+                if e.attempts >= MAX_ATTEMPTS:
+                    e.delivery_status = "Failed"
                 log.exception("outbox event %s failed (attempt %s)", e.id, e.attempts)
         db.commit()
     return done
@@ -210,3 +227,25 @@ def process_report_jobs() -> dict:
 
     with session_factory()() as db:
         return process_jobs(db)
+
+
+@celery.task
+def run_report_schedules() -> dict:
+    """FR-RPT-027: queue scheduled reports that are due (each recipient's job runs with their own permissions)."""
+    from app.services.schedules import run_due_schedules
+
+    with session_factory()() as db:
+        out = run_due_schedules(db)
+        db.commit()
+        return out
+
+
+@celery.task
+def generate_recurring_expenses() -> dict:
+    """FR-EXP-008: hourly, create the Draft expenses that are due in each branch's local date."""
+    from app.services.schedules import generate_due
+
+    with session_factory()() as db:
+        out = generate_due(db)
+        db.commit()
+        return {"created": out["created"], "skipped": out["skipped"]}

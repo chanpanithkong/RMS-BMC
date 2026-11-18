@@ -15,6 +15,7 @@ import { loadSessions } from "./cash"
 import { useSession } from "./session"
 import type {
   BillSplit,
+  ComboPick,
   Category,
   Discount,
   FloorTable,
@@ -58,6 +59,22 @@ const discountOf = (d: { kind: string; value: string | number; reason: string; a
   approvedBy: d.approved_by ?? undefined,
 })
 
+export const comboOf = (slots: { id: string; name_en: string; min_select: number; max_select: number; options: { variant_id: string; item_name_en: string; variant_name: string; price_delta: string; available: boolean }[] }[] | undefined) =>
+  slots?.length
+    ? slots.map((s) => ({
+        id: s.id,
+        name: s.name_en,
+        min: s.min_select,
+        max: s.max_select,
+        options: s.options.map((o) => ({
+          variantId: o.variant_id,
+          name: o.variant_name === "Regular" ? o.item_name_en : `${o.item_name_en} (${o.variant_name})`,
+          delta: Number(o.price_delta),
+          available: o.available,
+        })),
+      }))
+    : undefined
+
 function toLine(i: ApiItem, discounts: ApiOrder["discounts"]): OrderLine {
   const d = discounts.find((x) => x.order_item_id === i.id)
   return {
@@ -81,6 +98,8 @@ function toLine(i: ApiItem, discounts: ApiOrder["discounts"]): OrderLine {
     sentAt: secs(i.sent_at),
     startedAt: secs(i.started_at),
     readyAt: secs(i.ready_at),
+    parentId: i.parent_item_id ?? undefined,
+    slot: i.combo_slot_name ?? undefined,
   }
 }
 
@@ -159,6 +178,9 @@ function toMenu(feed: { categories: Schemas["CategoryOut"][]; items: Schemas["Me
       sku: i.barcode ?? undefined,
       channels: i.channels,
       variantIds,
+      regularPrice: variants[0]?.regular_price ? num(variants[0].regular_price) : undefined,
+      priceList: variants[0]?.price_list ?? undefined,
+      combo: comboOf(i.combo_slots),
     }
   })
   const cats: Category[] = feed.categories.map((c) => ({ id: c.id, name: c.name_en, km: c.name_km ?? "", order: c.sort_order, active: c.is_active }))
@@ -229,6 +251,8 @@ export async function loadTables() {
     outOfService: t.is_out_of_service ? (t.out_of_service_reason ?? "Out of service") : undefined,
     flagged: t.flagged,
     group: t.current_group_id ?? undefined,
+    version: t.version,
+    areaId: t.dining_area_id,
   }))
   rms.loadTables(out)
 }
@@ -360,12 +384,12 @@ export async function createOrder(type: OrderType, o: { tableId?: string; tableT
 export async function addLine(
   orderId: string,
   item: MenuItem,
-  pick: { variant?: string; modifiers: LineModifier[]; qty: number; note?: string; seat?: number }
+  pick: { variant?: string; modifiers: LineModifier[]; qty: number; note?: string; seat?: number; combo?: ComboPick[] }
 ) {
   const variantId = item.variantIds?.[pick.variant ?? "Regular"] ?? Object.values(item.variantIds ?? {})[0]
   if (!variantId) throw new ApiError(422, { code: "PRICE_MISSING", message: `${item.name} has no current price.`, correlation_id: "" })
   await api("POST", `/orders/${orderId}/items`, {
-    body: [{ variant_id: variantId, quantity: String(pick.qty), modifiers: pick.modifiers.filter((m) => m.id).map((m) => ({ modifier_id: m.id })), note: pick.note || undefined, seat_no: pick.seat }],
+    body: [{ variant_id: variantId, quantity: String(pick.qty), modifiers: pick.modifiers.filter((m) => m.id).map((m) => ({ modifier_id: m.id })), note: pick.note || undefined, seat_no: pick.seat, combo: pick.combo ?? [] }],
   })
   return refreshOrder(orderId)
 }

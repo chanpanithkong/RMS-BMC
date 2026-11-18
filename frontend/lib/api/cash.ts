@@ -97,6 +97,12 @@ export async function loadSessions(myId: string, canViewAll: boolean) {
   return sessions
 }
 
+/** Refresh only the user's own open session (used by the header on every page). */
+export async function loadCurrent(myId: string) {
+  const current = await api<ApiSession | null>("GET", "/cashier-sessions/current")
+  rms.setOwnSession(current ? toSession(current, myId) : undefined)
+}
+
 export const openSession = (floats: { USD: number; KHR: number }) =>
   api<ApiSession>("POST", "/cashier-sessions", { body: { floats: { USD: String(floats.USD), KHR: String(floats.KHR) } } })
 

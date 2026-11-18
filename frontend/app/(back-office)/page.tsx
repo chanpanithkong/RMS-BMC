@@ -2,174 +2,110 @@
 
 import * as React from "react"
 import Link from "next/link"
-import {
-  Armchair,
-  Banknote,
-  ChefHat,
-  ClipboardCheck,
-  ClipboardList,
-  Percent,
-  TrendingUp,
-  Undo2,
-  XCircle,
-} from "lucide-react"
+import { Armchair, Banknote, ChefHat, ClipboardCheck, ClipboardList, Percent, RefreshCw, TrendingUp, Undo2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChartCard } from "@/components/rms/chart-card"
 import { DataTable } from "@/components/rms/data-table"
-import {
-  DateRangeFilter,
-  MoneyText,
-  Notice,
-  Page,
-  PageHeader,
-  PageTabs,
-  Panel,
-  Stat,
-  StatusBadge,
-  useTab,
-} from "@/components/rms/kit"
+import { MoneyText, Notice, Page, PageHeader, PageTabs, Panel, SimpleSelect, Stat, StatusBadge, useTab } from "@/components/rms/kit"
+import { api } from "@/lib/api/client"
+import { METHOD_LABEL } from "@/lib/api/billing"
+import { can, useSession } from "@/lib/api/session"
+import { num, useApi, when } from "@/lib/api/use-api"
 import { usd } from "@/lib/rms/billing"
-import { ingredients } from "@/lib/rms/back-office"
-import { financialRoles, roleLabels } from "@/lib/rms/nav"
-import {
-  expectedCash,
-  mmss,
-  ticketsFor,
-  useClock,
-  useRms,
-} from "@/lib/rms/store"
-import type { Station } from "@/lib/rms/types"
 
-const scale: Record<string, number> = {
-  Today: 1,
-  Yesterday: 1.08,
-  "This week": 6.4,
-  "This month": 26.5,
-  Custom: 12,
+interface Dashboard {
+  business_date: string
+  from: string
+  to: string
+  calculated_at: string
+  widgets: {
+    sales?: { gross_sales: number; discounts: number; refunds: number; net_sales: number; service_charges: number; taxes: number; delivery_fees: number; finalised_bills: number }
+    payments_by_method?: { method: string; currency: string; count: number; amount_in_currency: number; amount_base: number; refunds_base: number; net_collected_base: number }[]
+    top_items?: { by_quantity: { item: string; quantity: number }[] }
+    indicative_operating_result?: { value: number; label: string }
+    costs?: { theoretical_food_cost: number; theoretical_food_cost_percent: number; approved_expenses: number; platform_commissions: number }
+    trends?: { grain: string; series: { period_start: string; orders: number; net_sales: number }[] }
+    orders?: { received: number; completed: number; cancelled: number; open: number; average_order_value: number }
+    table_occupancy?: { occupied: number; active: number; percent: number }
+    kitchen?: { station_code: string; pending_tickets: number; oldest_age_minutes: number }[]
+    stock?: { low_stock_count: number; valuation: number }
+    cashier_sessions?: { session_id: string; user_id: string; status: string; expected: Record<string, string> | null; results: { currency: string; variance: string }[] | null }[]
+    my_session?: { session_id: string; opened_at: string } | null
+  }
 }
-const trend = [
-  ["Mon", 1820, 118],
-  ["Tue", 1695, 109],
-  ["Wed", 2040, 131],
-  ["Thu", 2210, 142],
-  ["Fri", 2860, 186],
-  ["Sat", 3240, 214],
-  ["Sun", 2480, 163],
-].map(([label, sales, orders]) => ({ label, sales, orders })) as {
-  label: string
-  sales: number
-  orders: number
-}[]
-const topQty = [
-  ["Fried Rice", 38],
-  ["Iced Coffee", 34],
-  ["Beef Lok Lak", 26],
-  ["Fish Amok", 22],
-  ["Kuy Teav", 21],
-  ["Draft Beer", 19],
-  ["Latte", 15],
-  ["Mango Salad", 12],
-  ["Spring Rolls", 11],
-  ["Palm Juice", 9],
-].map(([item, qty]) => ({ item, qty })) as { item: string; qty: number }[]
-const byCategory = [
-  ["Khmer Mains", 742],
-  ["Rice & Noodles", 498],
-  ["Coffee & Tea", 214],
-  ["Beer & Cocktails", 186],
-  ["Soups", 142],
-  ["Starters", 96],
-  ["Desserts", 64],
-].map(([category, net]) => ({ category, net })) as {
-  category: string
-  net: number
-}[]
-const payments = [
-  { id: "1", method: "Cash USD", currency: "USD", amount: 742.5 },
-  { id: "2", method: "Cash KHR", currency: "KHR", amount: 312.3 },
-  { id: "3", method: "KHQR", currency: "USD", amount: 684.2 },
-  { id: "4", method: "Card", currency: "USD", amount: 196 },
-  { id: "5", method: "Bank Transfer", currency: "USD", amount: 42 },
-]
-const branchRows = [
-  {
-    id: "b1",
-    branch: "Riverside",
-    net: 2142,
-    orders: 151,
-    aov: 14.19,
-    food: 31.4,
-    expenses: 412,
-    labour: 186,
-  },
-  {
-    id: "b2",
-    branch: "BKK1",
-    net: 1688,
-    orders: 124,
-    aov: 13.61,
-    food: 33.8,
-    expenses: 305,
-    labour: 142,
-  },
-  {
-    id: "b3",
-    branch: "Siem Reap",
-    net: 1294,
-    orders: 88,
-    aov: 14.7,
-    food: 29.6,
-    expenses: 261,
-    labour: 118,
-  },
-]
-const stations: Station[] = ["Hot", "Cold", "Beverage", "Dessert", "Bar"]
+
+const RANGES = ["Today", "Yesterday", "Last 7 days", "This month", "Last 30 days"] as const
+/** Business-date range for a named period, counted back from the branch's current business date. */
+function range(name: string, today: string) {
+  const d = (offset: number) => {
+    const x = new Date(`${today}T12:00`)
+    x.setDate(x.getDate() + offset)
+    return x.toLocaleDateString("en-CA")
+  }
+  switch (name) {
+    case "Yesterday":
+      return { from: d(-1), to: d(-1), grain: "day" }
+    case "Last 7 days":
+      return { from: d(-6), to: today, grain: "day" }
+    case "This month":
+      return { from: `${today.slice(0, 8)}01`, to: today, grain: "day" }
+    case "Last 30 days":
+      return { from: d(-29), to: today, grain: "week" }
+    default:
+      return { from: today, to: today, grain: "day" }
+  }
+}
 
 export default function DashboardPage() {
-  const { role, orders, tables, sessions, branch } = useRms()
-  const at = useClock()
-  const [range, setRange] = React.useState("Today")
+  const { me } = useSession()
+  const [period, setPeriod] = React.useState<string>("Today")
   const [tab, setTab] = useTab("overview")
-  const k = scale[range]
-  const m = (n: number) => usd(n * k)
-  const financial = financialRoles.includes(role)
-  const ops = financial || role === "SUPV"
-  const showKitchen = ops || role === "KMGR"
-  const showStock = financial || ["INVOFF", "KMGR", "PUROFF"].includes(role)
-
-  const active = tables.filter((t) => !t.outOfService)
-  const occupied = active.filter((t) =>
-    ["Seated", "Ordering", "Served", "Awaiting Payment"].includes(t.state)
+  const today = me?.business_date ?? new Date().toLocaleDateString("en-CA")
+  const r = range(period, today)
+  const dash = useApi(() => api<Dashboard>("GET", "/dashboard", { query: { date_from: r.from, date_to: r.to, trend: r.grain } }), [r.from, r.to, r.grain], null)
+  // Trends need more than one day to be useful: always show the last 7 days.
+  const week = range("Last 7 days", today)
+  const trend = useApi(
+    () => api<Dashboard>("GET", "/dashboard", { query: { date_from: week.from, date_to: week.to, trend: "day" } }).then((d) => d.widgets.trends?.series ?? []),
+    [week.from],
+    [] as { period_start: string; orders: number; net_sales: number }[]
   )
-  const low = ingredients.filter((i) => i.onHand <= i.reorder)
-  const value = ingredients.reduce(
-    (s, i) => s + Math.max(i.onHand, 0) * i.cost,
-    0
+  const crossBranch = can(me, "report.cross_branch")
+  const compare = useApi(
+    () =>
+      crossBranch && tab === "branches"
+        ? api<{ rows: { branch_id: string; name: string; net_sales: string; orders: number; average_order_value: string; food_cost_percent: string; labour_hours: string; approved_expenses: string }[] }>("GET", "/branch-comparison", {
+            query: { date_from: r.from, date_to: r.to },
+          })
+        : Promise.resolve(null),
+    [crossBranch, tab, r.from, r.to],
+    null
   )
-  const kitchen = stations.map((s) => {
-    const list = ticketsFor(orders, at, s)
-    return {
-      station: s,
-      count: list.length,
-      oldest: list.length ? Math.max(...list.map((t) => t.age)) : 0,
-    }
-  })
+  const users = useApi(
+    async () => (can(me, "users.view") ? (await api<{ data: { id: string; full_name: string }[] }>("GET", "/users", { query: { page_size: 200 } })).data : []),
+    [me?.id],
+    []
+  )
+  const w = dash.data?.widgets ?? {}
+  const financial = !!w.sales
+  const nothing = dash.data && Object.keys(w).length === 0
 
   return (
     <Page>
       <PageHeader
         title="Dashboard"
-        description={`${roleLabels[role]} view for ${branch}, calculated at 13:02. Values are illustrative.`}
+        description={`${me?.current_branch.name_en ?? ""} · ${r.from === r.to ? r.from : `${r.from} – ${r.to}`}${dash.data ? ` · calculated ${when(dash.data.calculated_at).slice(11)}` : ""}`}
         actions={
           <>
-            <DateRangeFilter value={range} onChange={setRange} />
-            <Button variant="outline" onClick={() => setRange(range)}>
+            <SimpleSelect aria-label="Period" className="w-40" value={period} onChange={setPeriod} options={RANGES.map((x) => ({ value: x, label: x }))} />
+            <Button variant="outline" onClick={() => [dash, trend, compare].forEach((x) => x.reload())}>
+              <RefreshCw />
               Refresh
             </Button>
           </>
         }
       />
-      {financial && (
+      {crossBranch && (
         <PageTabs
           tabs={[
             { value: "overview", label: "Overview" },
@@ -179,263 +115,157 @@ export default function DashboardPage() {
           onChange={setTab}
         />
       )}
-      {tab === "branches" && financial ? (
+      {tab === "branches" && crossBranch ? (
         <div className="grid gap-4">
           <ChartCard
             title="Net sales by branch"
-            data={branchRows}
+            data={(compare.data?.rows ?? []).map((x) => ({ branch: x.name, net: num(x.net_sales) }))}
             xKey="branch"
             series={[{ key: "net", label: "Net sales" }]}
             format={(v) => `$${v.toLocaleString()}`}
           />
           <Panel title="Branch comparison">
             <DataTable
-              rows={branchRows}
+              rows={(compare.data?.rows ?? []).map((x) => ({ ...x, id: x.branch_id }))}
               exportName="branch-comparison"
               columns={[
-                { key: "branch", header: "Branch" },
-                {
-                  key: "net",
-                  header: "Net sales",
-                  align: "right",
-                  render: (r) => usd(r.net),
-                },
+                { key: "name", header: "Branch" },
+                { key: "net_sales", header: "Net sales", align: "right", render: (x) => usd(num(x.net_sales)) },
                 { key: "orders", header: "Orders", align: "right" },
-                {
-                  key: "aov",
-                  header: "AOV",
-                  align: "right",
-                  render: (r) => usd(r.aov),
-                },
-                {
-                  key: "food",
-                  header: "Food cost %",
-                  align: "right",
-                  render: (r) => `${r.food}%`,
-                },
-                { key: "labour", header: "Labour hours", align: "right" },
-                {
-                  key: "expenses",
-                  header: "Expenses",
-                  align: "right",
-                  render: (r) => usd(r.expenses),
-                },
+                { key: "average_order_value", header: "AOV", align: "right", render: (x) => usd(num(x.average_order_value)) },
+                { key: "food_cost_percent", header: "Food cost %", align: "right", render: (x) => `${num(x.food_cost_percent)}%` },
+                { key: "labour_hours", header: "Labour hours", align: "right", render: (x) => num(x.labour_hours).toFixed(1) },
+                { key: "approved_expenses", header: "Expenses", align: "right", render: (x) => usd(num(x.approved_expenses)) },
               ]}
             />
           </Panel>
         </div>
       ) : (
         <>
-          {financial && (
-            <section
-              className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-              aria-label="Sales"
-            >
-              <Stat
-                label="Gross sales"
-                value={m(2318.4)}
-                icon={Banknote}
-                href="/reports/RPT-01"
-                hint="Before discounts"
-              />
-              <Stat
-                label="Discounts"
-                value={m(98.2)}
-                icon={Percent}
-                href="/reports/RPT-13"
-              />
-              <Stat
-                label="Refunds"
-                value={m(12.4)}
-                icon={Undo2}
-                href="/reports/RPT-12"
-              />
-              <Stat
-                label="Net sales"
-                value={m(2207.8)}
-                icon={TrendingUp}
-                href="/reports/RPT-01"
-                hint="Gross − discounts − refunds"
-              />
-              <Stat
-                label="Service charges"
-                value={m(102.4)}
-                href="/reports/RPT-14"
-                hint="Not part of net sales"
-              />
-              <Stat
-                label="Taxes"
-                value={m(231.0)}
-                href="/reports/RPT-14"
-                hint="Not part of net sales"
-              />
+          {w.sales && (
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Sales">
+              <Stat label="Gross sales" value={usd(w.sales.gross_sales)} icon={Banknote} href="/reports/RPT-01" hint="Before discounts" />
+              <Stat label="Discounts" value={usd(w.sales.discounts)} icon={Percent} href="/reports/RPT-13" />
+              <Stat label="Refunds" value={usd(w.sales.refunds)} icon={Undo2} href="/reports/RPT-12" />
+              <Stat label="Net sales" value={usd(w.sales.net_sales)} icon={TrendingUp} href="/reports/RPT-01" hint="Gross − discounts − refunds" />
+              <Stat label="Service charges" value={usd(w.sales.service_charges)} href="/reports/RPT-14" hint="Not part of net sales" />
+              <Stat label="Taxes" value={usd(w.sales.taxes)} href="/reports/RPT-14" hint="Not part of net sales" />
               <Stat
                 label="Payments collected"
-                value={m(1977)}
+                value={usd((w.payments_by_method ?? []).reduce((s, p) => s + num(p.net_collected_base), 0))}
                 href="/billing?tab=payments"
                 hint="Collections, separate from sales"
               />
-              <Stat
-                label="Average order value"
-                value={usd(14.62)}
-                href="/reports/RPT-08"
-              />
+              <Stat label="Average order value" value={usd(num(w.orders?.average_order_value))} href="/reports/RPT-08" />
             </section>
           )}
-          {ops && (
-            <section
-              className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-              aria-label="Orders"
-            >
-              <Stat
-                label="Orders received"
-                value={Math.round(163 * k)}
-                icon={ClipboardList}
-                href="/orders"
-              />
-              <Stat
-                label="Orders completed"
-                value={Math.round(151 * k)}
-                icon={ClipboardCheck}
-                href="/orders"
-              />
-              <Stat
-                label="Orders cancelled"
-                value={Math.round(4 * k)}
-                icon={XCircle}
-                href="/reports/RPT-11"
-              />
-              <Stat
-                label="Table occupancy"
-                value={`${Math.round((occupied.length / active.length) * 100)}%`}
-                icon={Armchair}
-                href="/tables"
-                hint={`${occupied.length} of ${active.length} tables, live`}
-              />
+          {w.orders && (
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Orders">
+              <Stat label="Orders received" value={w.orders.received} icon={ClipboardList} href="/orders" hint={`${w.orders.open} still open`} />
+              <Stat label="Orders completed" value={w.orders.completed} icon={ClipboardCheck} href="/orders" />
+              <Stat label="Orders cancelled" value={w.orders.cancelled} icon={XCircle} href="/reports/RPT-11" />
+              {w.table_occupancy && (
+                <Stat
+                  label="Table occupancy"
+                  value={`${Math.round(num(w.table_occupancy.percent))}%`}
+                  icon={Armchair}
+                  href="/tables"
+                  hint={`${w.table_occupancy.occupied} of ${w.table_occupancy.active} tables, now`}
+                />
+              )}
             </section>
           )}
           <div className="grid gap-4 xl:grid-cols-3">
-            {showKitchen && (
+            {w.kitchen && (
               <Panel
                 title="Pending kitchen tickets"
-                description="Live, refreshed automatically"
+                description="Right now"
                 actions={
-                  <Link
-                    href="/kds"
-                    className="text-sm text-primary hover:underline"
-                  >
+                  <Link href="/kds" className="text-sm text-primary hover:underline">
                     Open KDS
                   </Link>
                 }
               >
+                {w.kitchen.length === 0 && <p className="text-sm text-muted-foreground">All stations are clear.</p>}
                 <ul className="divide-y text-sm">
-                  {kitchen.map((s) => (
-                    <li
-                      key={s.station}
-                      className="flex items-center justify-between py-1.5"
-                    >
+                  {w.kitchen.map((s) => (
+                    <li key={s.station_code} className="flex items-center justify-between py-1.5">
                       <span className="flex items-center gap-2">
                         <ChefHat className="size-3.5 text-muted-foreground" />
-                        {s.station}
+                        {s.station_code}
                       </span>
                       <span className="flex items-center gap-3">
-                        <span className="tabular text-xs text-muted-foreground">
-                          {s.count ? `oldest ${mmss(s.oldest)}` : "clear"}
-                        </span>
-                        {s.oldest >= 1200 ? (
-                          <StatusBadge
-                            status={`${s.count} late`}
-                            tone="danger"
-                          />
-                        ) : (
-                          <span className="tabular w-8 text-right font-semibold">
-                            {s.count}
-                          </span>
-                        )}
+                        <span className="tabular text-xs text-muted-foreground">oldest {s.oldest_age_minutes} min</span>
+                        {s.oldest_age_minutes >= 20 ? <StatusBadge status={`${s.pending_tickets} late`} tone="danger" /> : <span className="tabular w-8 text-right font-semibold">{s.pending_tickets}</span>}
                       </span>
                     </li>
                   ))}
                 </ul>
               </Panel>
             )}
-            {showStock && (
+            {w.stock && (
               <Panel
                 title="Stock"
                 actions={
-                  <Link
-                    href="/inventory"
-                    className="text-sm text-primary hover:underline"
-                  >
+                  <Link href="/inventory" className="text-sm text-primary hover:underline">
                     Inventory
                   </Link>
                 }
               >
-                <div className="grid grid-cols-2 gap-3 pb-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-xs text-muted-foreground">
-                      Low-stock items
-                    </p>
-                    <p className="tabular text-2xl font-semibold">
-                      {low.length}
-                    </p>
+                    <p className="text-xs text-muted-foreground">Low-stock items</p>
+                    <p className="tabular text-2xl font-semibold">{w.stock.low_stock_count}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Valuation</p>
-                    <p className="tabular text-2xl font-semibold">
-                      {usd(value)}
-                    </p>
+                    <p className="tabular text-2xl font-semibold">{usd(w.stock.valuation)}</p>
                   </div>
                 </div>
+              </Panel>
+            )}
+            {w.cashier_sessions && (
+              <Panel
+                title="Cashier sessions"
+                actions={
+                  <Link href="/shifts" className="text-sm text-primary hover:underline">
+                    Shifts
+                  </Link>
+                }
+              >
+                {w.cashier_sessions.length === 0 && <p className="text-sm text-muted-foreground">No sessions yet.</p>}
                 <ul className="divide-y text-sm">
-                  {low.slice(0, 4).map((i) => (
-                    <li
-                      key={i.id}
-                      className="flex items-center justify-between py-1.5"
-                    >
-                      <span>{i.name}</span>
-                      <span className="tabular text-xs text-muted-foreground">
-                        {i.onHand} / {i.reorder} {i.unit}
+                  {w.cashier_sessions.slice(0, 5).map((s) => (
+                    <li key={s.session_id} className="flex items-center justify-between gap-2 py-1.5">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{users.data.find((u) => u.id === s.user_id)?.full_name ?? "Cashier"}</span>
+                        <span className="tabular text-xs text-muted-foreground">
+                          {s.status === "Open"
+                            ? s.expected
+                              ? `Expected ${usd(num(s.expected.USD))}`
+                              : "Open"
+                            : `Variance ${usd(num(s.results?.find((x) => x.currency === "USD")?.variance))}`}
+                        </span>
                       </span>
+                      <StatusBadge status={s.status === "ClosingPendingApproval" ? "Pending Approval" : s.status} />
                     </li>
                   ))}
                 </ul>
               </Panel>
             )}
-            {(financial || role === "SUPV" || role === "CASHIER") && (
-              <Panel
-                title="Cashier sessions"
-                actions={
-                  <Link
-                    href="/shifts"
-                    className="text-sm text-primary hover:underline"
-                  >
-                    Shifts
-                  </Link>
-                }
-              >
-                <ul className="divide-y text-sm">
-                  {sessions.slice(0, 4).map((s) => {
-                    const e = expectedCash(s)
-                    return (
-                      <li
-                        key={s.id}
-                        className="flex items-center justify-between gap-2 py-1.5"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">
-                            {s.cashier}
-                          </span>
-                          <span className="tabular text-xs text-muted-foreground">
-                            {s.status === "Open"
-                              ? `Expected ${usd(e.usd)}`
-                              : `Variance ${usd(s.varianceUSD ?? 0)}`}
-                          </span>
-                        </span>
-                        <StatusBadge status={s.status} />
-                      </li>
-                    )
-                  })}
-                </ul>
+            {w.my_session !== undefined && (
+              <Panel title="My cashier session">
+                {w.my_session ? (
+                  <p className="text-sm">Open since {when(w.my_session.opened_at).slice(11)}.</p>
+                ) : (
+                  <p className="text-sm">
+                    No session open.{" "}
+                    <Link className="underline" href="/shifts">
+                      Open one
+                    </Link>{" "}
+                    before taking cash.
+                  </p>
+                )}
               </Panel>
             )}
           </div>
@@ -446,7 +276,7 @@ export default function DashboardPage() {
                   title="Net sales trend"
                   description="Last 7 business days"
                   type="line"
-                  data={trend}
+                  data={trend.data.map((t) => ({ label: t.period_start.slice(5), sales: num(t.net_sales) }))}
                   xKey="label"
                   series={[{ key: "sales", label: "Net sales" }]}
                   format={(v) => `$${v.toLocaleString()}`}
@@ -454,7 +284,7 @@ export default function DashboardPage() {
                 <ChartCard
                   title="Orders trend"
                   description="Last 7 business days"
-                  data={trend}
+                  data={trend.data.map((t) => ({ label: t.period_start.slice(5), orders: t.orders }))}
                   xKey="label"
                   series={[{ key: "orders", label: "Orders" }]}
                 />
@@ -462,71 +292,57 @@ export default function DashboardPage() {
                   title="Top 10 items by quantity"
                   horizontal
                   height={300}
-                  data={topQty}
+                  data={(w.top_items?.by_quantity ?? []).map((t) => ({ item: t.item, qty: num(t.quantity) }))}
                   xKey="item"
                   series={[{ key: "qty", label: "Quantity" }]}
                 />
-                <ChartCard
-                  title="Net sales by category"
-                  horizontal
-                  height={300}
-                  data={byCategory}
-                  xKey="category"
-                  series={[{ key: "net", label: "Net sales" }]}
-                  format={(v) => `$${v}`}
-                />
-              </div>
-              <div className="grid gap-4 xl:grid-cols-3">
-                <Panel title="Payments by method" className="xl:col-span-1">
+                <Panel title="Payments by method">
+                  {(w.payments_by_method ?? []).length === 0 && <p className="text-sm text-muted-foreground">No payments in this period.</p>}
                   <ul className="divide-y text-sm">
-                    {payments.map((p) => (
-                      <li key={p.id} className="flex justify-between py-1.5">
+                    {(w.payments_by_method ?? []).map((p) => (
+                      <li key={`${p.method}-${p.currency}`} className="flex justify-between py-1.5">
                         <span>
-                          {p.method}{" "}
-                          <span className="text-xs text-muted-foreground">
-                            {p.currency}
-                          </span>
+                          {METHOD_LABEL[p.method] ?? p.method} <span className="text-xs text-muted-foreground">{p.count} payments</span>
                         </span>
-                        <MoneyText value={p.amount * k} />
+                        <MoneyText value={num(p.net_collected_base)} />
                       </li>
                     ))}
                   </ul>
                 </Panel>
-                <Panel title="Cost indicators">
-                  <ul className="divide-y text-sm">
-                    <li className="flex justify-between py-1.5">
-                      <span>Theoretical food cost</span>
-                      <span className="tabular font-medium">31.4%</span>
-                    </li>
-                    <li className="flex justify-between py-1.5">
-                      <span>Approved expenses</span>
-                      <MoneyText value={412.6 * k} />
-                    </li>
-                    <li className="flex justify-between py-1.5">
-                      <span>Inventory valuation</span>
-                      <MoneyText value={value} />
-                    </li>
-                  </ul>
-                </Panel>
-                <Panel title="Indicative operating result">
-                  <p className="tabular text-3xl font-semibold">{m(1102.4)}</p>
-                  <Notice tone="neutral" className="mt-2">
-                    Indicative — not accounting profit.
-                  </Notice>
-                </Panel>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                {w.costs && (
+                  <Panel title="Cost indicators">
+                    <ul className="divide-y text-sm">
+                      <li className="flex justify-between py-1.5">
+                        <span>Theoretical food cost</span>
+                        <span className="tabular font-medium">
+                          {usd(w.costs.theoretical_food_cost)} ({num(w.costs.theoretical_food_cost_percent)}%)
+                        </span>
+                      </li>
+                      <li className="flex justify-between py-1.5">
+                        <span>Approved expenses</span>
+                        <MoneyText value={w.costs.approved_expenses} />
+                      </li>
+                      <li className="flex justify-between py-1.5">
+                        <span>Platform commissions</span>
+                        <MoneyText value={w.costs.platform_commissions} />
+                      </li>
+                    </ul>
+                  </Panel>
+                )}
+                {w.indicative_operating_result && (
+                  <Panel title="Indicative operating result">
+                    <p className="tabular text-3xl font-semibold">{usd(w.indicative_operating_result.value)}</p>
+                    <Notice tone="neutral" className="mt-2">
+                      {w.indicative_operating_result.label}
+                    </Notice>
+                  </Panel>
+                )}
               </div>
             </>
           )}
-          {!financial && !showKitchen && !showStock && role !== "CASHIER" && (
-            <Notice tone="info">
-              <span>
-                Your role has only technical dashboard widgets.{" "}
-                <Link className="underline" href="/settings?tab=devices">
-                  View devices
-                </Link>
-              </span>
-            </Notice>
-          )}
+          {nothing && <Notice tone="info">Your role has no dashboard widgets. Use the menu to open your screens.</Notice>}
         </>
       )}
     </Page>

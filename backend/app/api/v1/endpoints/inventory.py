@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from app.core.dependencies import Ctx, require
 from app.core.exceptions import Conflict, NotFound
-from app.models import Ingredient, InventoryLocation, InventoryTransaction, StockBalance, UnitOfMeasure
+from app.models import Ingredient, InventoryLocation, InventoryTransaction, StockBalance, StockDocument, UnitOfMeasure
 from app.schemas.common import ORM, Page, Strict
 from app.services import inventory as svc
 from app.services.platform import audit
@@ -102,6 +102,7 @@ class DocOut(ORM):
     created_by: uuid.UUID
     approved_by: uuid.UUID | None
     posted_at: datetime | None
+    created_at: datetime | None = None
     lines: list[DocLineOut]
 
 
@@ -229,6 +230,16 @@ def reverse(txn_id: uuid.UUID, body: ReverseIn, ctx: Manage):
 @router.post("/documents", response_model=DocOut, status_code=201, summary="Draft a receipt (no PO), issue, adjustment, wastage or opening balance")
 def create_document(body: DocIn, ctx: View):
     return svc.create_document(ctx, body.doc_type, body.location_id, [ln.model_dump() for ln in body.lines], body.reason)
+
+
+@router.get("/documents", response_model=list[DocOut], summary="Stock documents of this branch, newest first (adjustments, wastage, issues, receipts without PO)")
+def list_documents(ctx: View, doc_type: str | None = None, status: str | None = None, limit: int = Query(200, ge=1, le=500)):
+    stmt = select(StockDocument).where(StockDocument.branch_id == ctx.branch_id)
+    if doc_type:
+        stmt = stmt.where(StockDocument.doc_type == doc_type)
+    if status:
+        stmt = stmt.where(StockDocument.status == status)
+    return ctx.db.scalars(stmt.order_by(StockDocument.created_at.desc()).limit(limit)).all()
 
 
 @router.get("/documents/{doc_id}", response_model=DocOut)

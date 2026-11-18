@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.core.dependencies import Ctx, require
 from app.core.exceptions import NotFound
-from app.models import Recipe, RecipeVersion, StockCount
+from app.models import Recipe, RecipeVersion, StockCount, StockTransfer
 from app.schemas.common import Strict
 from app.services import recipes as svc
 from app.services.platform import get_setting
@@ -161,6 +161,15 @@ def _count(ctx: Ctx, count_id: uuid.UUID) -> StockCount:
     return c
 
 
+@stock.get("/counts", summary="Count sheets of this branch, newest first (system quantities stay hidden on drafts)")
+def list_counts(ctx: Annotated[Ctx, Depends(require("inventory.view"))], status: str | None = None):
+    stmt = select(StockCount).where(StockCount.branch_id == ctx.branch_id)
+    if status:
+        stmt = stmt.where(StockCount.status == status)
+    return [{**svc.count_out(ctx, c), "created_at": c.created_at, "submitted_at": c.submitted_at, "posted_at": c.posted_at}
+            for c in ctx.db.scalars(stmt.order_by(StockCount.created_at.desc()).limit(200))]
+
+
 @stock.post("/counts", status_code=201, summary="Start a count sheet (blind: system quantities hidden until submitted)")
 def create_count(body: CountCreate, ctx: Annotated[Ctx, Depends(require("inventory.view"))]):
     return svc.count_out(ctx, svc.create_count(ctx, body.location_id, body.ingredient_ids))
@@ -184,6 +193,14 @@ def submit(count_id: uuid.UUID, ctx: Annotated[Ctx, Depends(require("inventory.m
 @stock.post("/counts/{count_id}/decision", summary="Approve to post COUNT_ADJUSTMENT variances (AT-INV-03)")
 def decide(count_id: uuid.UUID, body: DecisionIn, ctx: Annotated[Ctx, Depends(require("inventory.approve"))]):
     return svc.count_out(ctx, svc.approve_count(ctx, _count(ctx, count_id), body.approve))
+
+
+@stock.get("/transfers", summary="Transfers between locations of this branch, newest first")
+def list_transfers(ctx: Annotated[Ctx, Depends(require("inventory.view"))]):
+    rows = ctx.db.scalars(select(StockTransfer).where(StockTransfer.branch_id == ctx.branch_id).order_by(StockTransfer.created_at.desc()).limit(200))
+    return [{"id": t.id, "transfer_no": t.transfer_no, "from_location_id": t.from_location_id, "to_location_id": t.to_location_id, "status": t.status,
+             "created_at": t.created_at, "posted_at": t.posted_at,
+             "lines": [{"ingredient_id": ln.ingredient_id, "quantity": ln.quantity, "uom_id": ln.uom_id} for ln in t.lines]} for t in rows]
 
 
 @stock.post("/transfers", status_code=201, summary="Move stock between locations of this branch (FR-INV-007)")

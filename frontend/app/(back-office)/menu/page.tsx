@@ -2,11 +2,9 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Ban, Check, Eye, Plus, Upload } from "lucide-react"
-import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
+import { Ban, Check, Eye, Plus } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
-import { CrudTable, newId } from "@/components/rms/crud"
+import { CrudTable } from "@/components/rms/crud"
 import { DataTable } from "@/components/rms/data-table"
 import { confirmAction } from "@/components/rms/dialog-host"
 import {
@@ -18,79 +16,86 @@ import {
   StatusBadge,
   useTab,
 } from "@/components/rms/kit"
+import { CombosTab } from "@/components/rms/combo-slots"
+import { PriceListsTab, SchedulesTab } from "@/components/rms/menu-pricing"
+import * as menu from "@/lib/api/menu"
+import { act, num, save, useApi } from "@/lib/api/use-api"
 import { usd } from "@/lib/rms/billing"
-import { categories, modifierGroups, rms, useRms } from "@/lib/rms/store"
-import type { MenuItem } from "@/lib/rms/types"
 
-const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? id
 const stations = ["Hot", "Cold", "Beverage", "Dessert", "Bar", "None"]
 
 export default function MenuPage() {
-  const { menu } = useRms()
   const router = useRouter()
   const [tab, setTab] = useTab("items")
-  const variants = menu.flatMap((m) =>
-    (m.variants ?? []).map((v) => ({
-      id: `${m.id}-${v.name}`,
+  const items = useApi(menu.listItems, [], [])
+  const cats = useApi(menu.listCategories, [], [])
+  const groups = useApi(menu.listGroups, [], [])
+  const rows = items.data
+  const variants = rows.flatMap((m) =>
+    m.raw.variants.map((v) => ({
+      id: v.id,
       item: m.name,
-      variant: v.name,
-      price: v.price,
-      recipe: "Linked",
+      variant: v.name_en,
+      price: v.price === null ? null : num(v.price),
+      status: v.is_active ? "Active" : "Inactive",
     }))
   )
+  const catRows = cats.data.map((c) => ({
+    id: c.id,
+    name: c.name_en,
+    km: c.name_km ?? "",
+    order: c.sort_order,
+    active: c.is_active,
+  }))
+  const groupRows = groups.data.map((g) => ({
+    id: g.id,
+    name: g.name_en,
+    km: g.name_km ?? "",
+    min: g.min_select,
+    max: g.max_select,
+    modifiers: g.modifiers
+      .filter((m) => m.is_active)
+      .map((m) => (num(m.price_delta) ? `${m.name_en} +${usd(num(m.price_delta))}` : m.name_en))
+      .join(", "),
+  }))
+
   return (
     <Page>
       <PageHeader
         title="Menu"
         description="Items keep their order-time price and name, so changes here only affect new orders."
         actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={() =>
-                toast.info("Choose a filled template spreadsheet to validate")
-              }
-            >
-              <Upload />
-              Import
-            </Button>
-            <LinkButton href="/menu/new">
-              <Plus />
-              New item
-            </LinkButton>
-          </>
+          <LinkButton href="/menu/new">
+            <Plus />
+            New item
+          </LinkButton>
         }
       />
       <PageTabs
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "items", label: "Items", count: menu.length },
-          { value: "categories", label: "Categories" },
+          { value: "items", label: "Items", count: rows.length },
+          { value: "categories", label: "Categories", count: catRows.length },
           { value: "variants", label: "Variants" },
-          { value: "modifiers", label: "Modifiers" },
-          { value: "combos", label: "Combos" },
+          { value: "modifiers", label: "Modifiers", count: groupRows.length },
+          { value: "combos", label: "Combos", count: rows.filter((m) => m.type === "Combo").length },
           { value: "prices", label: "Price lists" },
           { value: "schedules", label: "Schedules" },
           { value: "availability", label: "Availability" },
-          { value: "history", label: "Price history" },
         ]}
       />
       {tab === "items" && (
-        <DataTable<MenuItem>
-          rows={menu}
+        <DataTable
+          rows={rows}
           exportName="menu-items"
           pageSize={12}
+          emptyTitle={items.loading ? "Loading…" : "No menu items"}
           searchPlaceholder="Name (EN or ខ្មែរ) or code…"
           onRowClick={(m) => router.push(`/menu/${m.id}`)}
-          searchValue={(m) => `${m.name} ${m.km} ${m.code} ${m.sku ?? ""}`}
+          searchValue={(m) => `${m.name} ${m.km} ${m.code} ${m.raw.barcode ?? ""}`}
           filters={[
-            {
-              key: "cat",
-              label: "Category",
-              value: (m) => catName(m.cat),
-              options: categories.map((c) => c.name),
-            },
+            { key: "category", label: "Category", options: catRows.map((c) => c.name) },
             { key: "station", label: "Station", options: stations },
             {
               key: "active",
@@ -111,9 +116,8 @@ export default function MenuPage() {
                 </span>
               ),
             },
-            { key: "cat", header: "Category", value: (m) => catName(m.cat) },
+            { key: "category", header: "Category" },
             { key: "station", header: "Station" },
-            { key: "tax", header: "Tax profile", hidden: true },
             {
               key: "price",
               header: "Price",
@@ -125,27 +129,18 @@ export default function MenuPage() {
               header: "Availability",
               value: (m) => (m.available ? "Available" : "Sold out"),
               render: (m) => (
-                <StatusBadge
-                  status={m.available ? "Available" : "Sold out"}
-                  tone={m.available ? "success" : "danger"}
-                />
+                <StatusBadge status={m.available ? "Available" : "Sold out"} tone={m.available ? "success" : "danger"} />
               ),
             },
             {
               key: "active",
               header: "Status",
               value: (m) => (m.active ? "Active" : "Inactive"),
-              render: (m) => (
-                <StatusBadge status={m.active ? "Active" : "Inactive"} />
-              ),
+              render: (m) => <StatusBadge status={m.active ? "Active" : "Inactive"} />,
             },
           ]}
           rowActions={(m) => [
-            {
-              label: "Open",
-              icon: Eye,
-              onClick: () => router.push(`/menu/${m.id}`),
-            },
+            { label: "Open", icon: Eye, onClick: () => router.push(`/menu/${m.id}`) },
             m.active
               ? {
                   label: "Deactivate",
@@ -158,13 +153,14 @@ export default function MenuPage() {
                         "Ordered items are never deleted. It disappears from POS but open orders keep their snapshot.",
                       destructive: true,
                       confirmLabel: "Deactivate",
-                      onConfirm: () => rms.saveMenu({ ...m, active: false }),
+                      onConfirm: () => void act(() => menu.deactivateItem(m.id), `${m.name} deactivated`, items.reload),
                     }),
                 }
               : {
                   label: "Activate",
                   icon: Check,
-                  onClick: () => rms.saveMenu({ ...m, active: true }),
+                  onClick: () =>
+                    void act(() => menu.updateItem(m.id, { is_active: true, version: m.raw.version }), `${m.name} activated`, items.reload),
                 },
           ]}
         />
@@ -172,7 +168,15 @@ export default function MenuPage() {
       {tab === "categories" && (
         <CrudTable
           noun="Category"
-          seed={categories}
+          rows={catRows}
+          onSave={(v, e) =>
+            save(() =>
+              menu.saveCategory(
+                { name_en: String(v.name), name_km: String(v.km ?? "") || undefined, sort_order: Number(v.order) || 0, is_active: v.active !== false },
+                e?.id
+              )
+            ).then(cats.reload)
+          }
           columns={[
             { key: "order", header: "Order", align: "right" },
             { key: "name", header: "English name" },
@@ -181,31 +185,16 @@ export default function MenuPage() {
               key: "active",
               header: "Status",
               value: (c) => (c.active ? "Active" : "Inactive"),
-              render: (c) => (
-                <StatusBadge status={c.active ? "Active" : "Inactive"} />
-              ),
+              render: (c) => <StatusBadge status={c.active ? "Active" : "Inactive"} />,
             },
           ]}
           fields={[
             { name: "name", label: "English name", required: true, half: true },
-            { name: "km", label: "Khmer name", required: true, half: true },
-            {
-              name: "order",
-              label: "Display order",
-              type: "number",
-              min: 1,
-              required: true,
-              half: true,
-            },
+            { name: "km", label: "Khmer name", half: true },
+            { name: "order", label: "Display order", type: "number", min: 0, required: true, half: true },
             { name: "active", label: "Active", type: "switch", half: true },
           ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            km: String(v.km),
-            order: Number(v.order),
-            active: Boolean(v.active),
-          })}
+          toForm={(c) => ({ name: c.name, km: c.km, order: String(c.order), active: c.active })}
         />
       )}
       {tab === "variants" && (
@@ -217,55 +206,45 @@ export default function MenuPage() {
             { key: "variant", header: "Variant" },
             {
               key: "price",
-              header: "Price",
+              header: "Current price",
               align: "right",
-              render: (r) => usd(r.price),
+              render: (r) => (r.price === null ? "No price" : usd(r.price)),
             },
-            {
-              key: "recipe",
-              header: "Recipe",
-              render: (r) => <StatusBadge status={r.recipe} tone="success" />,
-            },
+            { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
           ]}
         />
       )}
       {tab === "modifiers" && (
         <CrudTable
           noun="Modifier group"
-          seed={modifierGroups.map((g) => ({
-            id: g.id,
-            name: g.name,
-            km: g.km,
-            min: g.min,
-            max: g.max,
-            modifiers: g.modifiers
-              .map((m) => (m.delta ? `${m.name} +${usd(m.delta)}` : m.name))
-              .join(", "),
-          }))}
+          rows={groupRows}
+          canEdit={false}
+          description="Groups can't be edited after they are created; create a new group and attach it instead."
+          onSave={(v) =>
+            save(() =>
+              menu.createGroup({
+                name_en: String(v.name),
+                name_km: String(v.km ?? "") || undefined,
+                min_select: Number(v.min),
+                max_select: Number(v.max),
+                modifiers: menu.parseModifiers(String(v.modifiers)),
+              })
+            ).then(groups.reload)
+          }
           columns={[
             { key: "name", header: "Group" },
             { key: "km", header: "Khmer" },
             {
               key: "rule",
               header: "Rule",
-              value: (g) =>
-                g.min > 0
-                  ? `Required, ${g.min}–${g.max}`
-                  : `Optional, up to ${g.max}`,
+              value: (g) => (g.min > 0 ? `Required, ${g.min}–${g.max}` : `Optional, up to ${g.max}`),
             },
             { key: "modifiers", header: "Modifiers" },
           ]}
           fields={[
             { name: "name", label: "English name", required: true, half: true },
-            { name: "km", label: "Khmer name", required: true, half: true },
-            {
-              name: "min",
-              label: "Minimum",
-              type: "number",
-              min: 0,
-              required: true,
-              half: true,
-            },
+            { name: "km", label: "Khmer name", half: true },
+            { name: "min", label: "Minimum", type: "number", min: 0, required: true, half: true },
             {
               name: "max",
               label: "Maximum",
@@ -273,254 +252,34 @@ export default function MenuPage() {
               min: 1,
               required: true,
               half: true,
-              validate: (v, a) =>
-                Number(a.min) > Number(v)
-                  ? "Minimum can't exceed maximum"
-                  : undefined,
+              validate: (v, a) => (Number(a.min) > Number(v) ? "Minimum can't exceed maximum" : undefined),
             },
             {
               name: "modifiers",
-              label: "Modifiers (comma separated)",
+              label: "Modifiers, comma separated (add a price like “Extra egg +0.50”)",
               required: true,
               type: "textarea",
             },
           ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            km: String(v.km),
-            min: Number(v.min),
-            max: Number(v.max),
-            modifiers: String(v.modifiers),
-          })}
         />
       )}
-      {tab === "combos" && (
-        <CrudTable
-          noun="Combo"
-          seed={[
-            {
-              id: "cb1",
-              name: "Lunch Set",
-              km: "ឈុតថ្ងៃត្រង់",
-              slots:
-                "Main: Fried Rice / Kuy Teav · Drink: Iced Coffee / Palm Juice",
-              price: 6.5,
-              status: "Active",
-            },
-            {
-              id: "cb2",
-              name: "Family Set",
-              km: "ឈុតគ្រួសារ",
-              slots: "2 Mains · Soup · 4 Rice · Dessert",
-              price: 29,
-              status: "Active",
-            },
-          ]}
-          columns={[
-            { key: "name", header: "Combo" },
-            { key: "km", header: "Khmer" },
-            { key: "slots", header: "Slots" },
-            {
-              key: "price",
-              header: "Price",
-              align: "right",
-              render: (r) => usd(r.price),
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
-          ]}
-          fields={[
-            { name: "name", label: "English name", required: true, half: true },
-            { name: "km", label: "Khmer name", required: true, half: true },
-            {
-              name: "slots",
-              label: "Slots and eligible items",
-              required: true,
-              type: "textarea",
-            },
-            {
-              name: "price",
-              label: "Combo price",
-              type: "number",
-              min: 0,
-              required: true,
-            },
-          ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            km: String(v.km),
-            slots: String(v.slots),
-            price: Number(v.price),
-            status: e?.status ?? "Active",
-          })}
-        />
-      )}
-      {tab === "prices" && (
-        <CrudTable
-          noun="Price list"
-          seed={[
-            {
-              id: "pl1",
-              name: "Standard",
-              window: "All day",
-              branch: "All",
-              from: "01/01/2026",
-              to: "",
-              status: "Active",
-            },
-            {
-              id: "pl2",
-              name: "Happy Hour",
-              window: "Mon–Fri 15:00–18:00",
-              branch: "Riverside",
-              from: "01/10/2026",
-              to: "",
-              status: "Active",
-            },
-            {
-              id: "pl3",
-              name: "Delivery",
-              window: "All day",
-              branch: "All",
-              from: "01/01/2026",
-              to: "",
-              status: "Active",
-            },
-            {
-              id: "pl4",
-              name: "Online",
-              window: "All day",
-              branch: "All",
-              from: "01/06/2026",
-              to: "",
-              status: "Active",
-            },
-            {
-              id: "pl5",
-              name: "Staff",
-              window: "Staff meal",
-              branch: "All",
-              from: "01/01/2026",
-              to: "",
-              status: "Active",
-            },
-          ]}
-          columns={[
-            { key: "name", header: "Price list" },
-            { key: "window", header: "Time window" },
-            { key: "branch", header: "Branch" },
-            { key: "from", header: "Effective from" },
-            { key: "to", header: "Effective to" },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
-          ]}
-          fields={[
-            { name: "name", label: "Name", required: true, half: true },
-            {
-              name: "branch",
-              label: "Branch",
-              type: "select",
-              options: ["All", "Riverside", "BKK1", "Siem Reap"],
-              required: true,
-              half: true,
-            },
-            { name: "window", label: "Time window", required: true },
-            {
-              name: "from",
-              label: "Effective from",
-              required: true,
-              half: true,
-            },
-            { name: "to", label: "Effective to", half: true },
-          ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            window: String(v.window),
-            branch: String(v.branch),
-            from: String(v.from),
-            to: String(v.to ?? ""),
-            status: e?.status ?? "Active",
-          })}
-        />
-      )}
-      {tab === "schedules" && (
-        <CrudTable
-          noun="Menu schedule"
-          seed={[
-            {
-              id: "ms1",
-              name: "Breakfast",
-              days: "Every day",
-              time: "07:00–10:30",
-              dates: "Always",
-              status: "Active",
-            },
-            {
-              id: "ms2",
-              name: "Khmer New Year specials",
-              days: "Every day",
-              time: "All day",
-              dates: "14/04/2027–16/04/2027",
-              status: "Scheduled",
-            },
-          ]}
-          columns={[
-            { key: "name", header: "Schedule" },
-            { key: "days", header: "Days" },
-            { key: "time", header: "Time" },
-            { key: "dates", header: "Dates" },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
-          ]}
-          fields={[
-            { name: "name", label: "Name", required: true },
-            { name: "days", label: "Days of week", required: true, half: true },
-            { name: "time", label: "Time window", required: true, half: true },
-            { name: "dates", label: "Date range", required: true },
-          ]}
-          toRow={(v, e) => ({
-            id: e?.id ?? newId(),
-            name: String(v.name),
-            days: String(v.days),
-            time: String(v.time),
-            dates: String(v.dates),
-            status: e?.status ?? "Active",
-          })}
-        />
-      )}
+      {tab === "combos" && <CombosTab items={rows} onOpen={(id) => router.push(`/menu/${id}?tab=combo`)} />}
+      {tab === "prices" && <PriceListsTab items={rows} />}
+      {tab === "schedules" && <SchedulesTab items={rows} />}
       {tab === "availability" && (
-        <DataTable<MenuItem>
-          rows={menu}
+        <DataTable
+          rows={rows.filter((m) => m.active)}
           pageSize={14}
           exportName="availability"
           columns={[
-            {
-              key: "name",
-              header: "Item",
-              render: (m) => <span className="font-medium">{m.name}</span>,
-            },
+            { key: "name", header: "Item", render: (m) => <span className="font-medium">{m.name}</span> },
             { key: "station", header: "Station" },
             {
               key: "state",
               header: "Today",
               value: (m) => (m.available ? "Available" : "Sold out"),
               render: (m) => (
-                <StatusBadge
-                  status={m.available ? "Available" : "Sold out"}
-                  tone={m.available ? "success" : "danger"}
-                />
+                <StatusBadge status={m.available ? "Available" : "Sold out"} tone={m.available ? "success" : "danger"} />
               ),
             },
             {
@@ -532,71 +291,16 @@ export default function MenuPage() {
                 <Switch
                   aria-label={`${m.name} available`}
                   checked={m.available}
-                  onCheckedChange={(c) => {
-                    rms.setAvailable(m.id, Boolean(c))
-                    toast.success(
-                      `${m.name} ${c ? "is available" : "marked sold out until end of day"}`
+                  onCheckedChange={(c) =>
+                    void act(
+                      () => menu.setAvailability(m.id, Boolean(c)),
+                      `${m.name} ${c ? "is available" : "marked sold out until end of day"}`,
+                      items.reload
                     )
-                  }}
+                  }
                 />
               ),
             },
-          ]}
-        />
-      )}
-      {tab === "history" && (
-        <DataTable
-          rows={[
-            {
-              id: "1",
-              item: "Beef Lok Lak",
-              list: "Standard",
-              old: 9,
-              next: 9.5,
-              effective: "01/11/2026 00:00",
-              user: "Dara Pich",
-              approval: "Vannak Keo",
-            },
-            {
-              id: "2",
-              item: "Iced Coffee",
-              list: "Standard",
-              old: 1.75,
-              next: 2,
-              effective: "15/10/2026 00:00",
-              user: "Dara Pich",
-              approval: "Vannak Keo",
-            },
-            {
-              id: "3",
-              item: "Draft Beer",
-              list: "Happy Hour",
-              old: 2,
-              next: 1.5,
-              effective: "01/10/2026 15:00",
-              user: "Sopheak Nou",
-              approval: "Dara Pich",
-            },
-          ]}
-          exportName="price-history"
-          columns={[
-            { key: "item", header: "Item" },
-            { key: "list", header: "Price list" },
-            {
-              key: "old",
-              header: "Old",
-              align: "right",
-              render: (r) => usd(r.old),
-            },
-            {
-              key: "next",
-              header: "New",
-              align: "right",
-              render: (r) => usd(r.next),
-            },
-            { key: "effective", header: "Effective" },
-            { key: "user", header: "Changed by" },
-            { key: "approval", header: "Approved by" },
           ]}
         />
       )}

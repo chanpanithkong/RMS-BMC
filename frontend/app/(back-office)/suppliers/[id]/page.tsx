@@ -2,191 +2,134 @@
 
 import { useParams } from "next/navigation"
 import { DataTable } from "@/components/rms/data-table"
-import {
-  EmptyState,
-  KV,
-  LinkButton,
-  Page,
-  PageHeader,
-  PageTabs,
-  Panel,
-  Stat,
-  StatusBadge,
-  useTab,
-} from "@/components/rms/kit"
+import { EmptyState, KV, LinkButton, Page, PageHeader, PageTabs, Panel, Stat, StatusBadge, useTab } from "@/components/rms/kit"
+import * as inv from "@/lib/api/inventory"
+import { api } from "@/lib/api/client"
+import type { Invoice, Supplier } from "@/lib/api/purchasing"
+import { num, useApi } from "@/lib/api/use-api"
 import { usd } from "@/lib/rms/billing"
-import {
-  goodsReceipts,
-  ingredients,
-  purchaseOrders,
-  purchaseReturns,
-  supplierInvoices,
-  suppliers,
-} from "@/lib/rms/back-office"
+
+interface History {
+  supplier: Supplier
+  balance: string
+  ageing: Record<string, string>
+  purchase_orders: { id: string; po_no: string; status: string; total: string }[]
+  receipts: { id: string; gr_no: string; status: string; value: string }[]
+  returns: { id: string; return_no: string; value: string }[]
+  invoices: Invoice[]
+  item_prices: { ingredient_id: string; unit_price: string; uom_id: string }[]
+}
+
+async function load(id: string) {
+  const [h, ingredients, units] = await Promise.all([api<History>("GET", `/suppliers/${id}/history`), inv.ingredients(), inv.units()])
+  return { h, ingredients, units }
+}
 
 export default function SupplierProfilePage() {
   const { id } = useParams<{ id: string }>()
   const [tab, setTab] = useTab("profile")
-  const s = suppliers.find((x) => x.id === id)
-  if (!s)
+  const { data, loading } = useApi(() => load(id).catch(() => null), [id], null)
+  if (loading) return <Page><PageHeader title="Supplier" description="Loading…" /></Page>
+  if (!data)
     return (
       <Page>
-        <EmptyState
-          title="Supplier not found"
-          action={<LinkButton href="/suppliers">Back to suppliers</LinkButton>}
-        />
+        <EmptyState title="Supplier not found" action={<LinkButton href="/suppliers">Back to suppliers</LinkButton>} />
       </Page>
     )
-  const pos = purchaseOrders.filter((p) => p.supplier === s.name)
-  const grn = goodsReceipts.filter((p) => p.supplier === s.name)
-  const inv = supplierInvoices.filter((p) => p.supplier === s.name)
-  const ret = purchaseReturns.filter((p) => p.supplier === s.name)
-  const items = ingredients.filter((i) => i.supplier === s.name)
+  const { h, ingredients, units } = data
+  const s = h.supplier
+  const ing = (i: string) => ingredients.find((x) => x.id === i)?.name_en ?? "?"
+  const unit = (u: string) => units.find((x) => x.id === u)?.code ?? ""
   return (
     <Page>
-      <PageHeader
-        title={s.name}
-        description={`${s.contact} · ${s.phone}`}
-        actions={<StatusBadge status={s.status} />}
-      />
+      <PageHeader title={s.name} description={`${s.contact_person} · ${s.phone}`} actions={<StatusBadge status={s.status} />} />
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Balance owed" value={usd(s.balance)} />
-        <Stat label="On-time delivery" value={`${s.onTime}%`} />
-        <Stat label="Purchase orders" value={pos.length} />
-        <Stat label="Items supplied" value={items.length} />
+        <Stat label="Balance owed" value={usd(num(h.balance))} />
+        <Stat label="Overdue" value={usd(Object.entries(h.ageing).filter(([k]) => k !== "current").reduce((a, [, v]) => a + num(v), 0))} />
+        <Stat label="Purchase orders" value={h.purchase_orders.length} />
+        <Stat label="Items supplied" value={h.item_prices.length} />
       </section>
       <PageTabs
         value={tab}
         onChange={setTab}
         tabs={[
           { value: "profile", label: "Profile" },
-          { value: "orders", label: "POs", count: pos.length },
-          { value: "receipts", label: "Receipts", count: grn.length },
-          { value: "invoices", label: "Invoices", count: inv.length },
-          { value: "returns", label: "Returns", count: ret.length },
-          { value: "prices", label: "Price history" },
+          { value: "orders", label: "POs", count: h.purchase_orders.length },
+          { value: "receipts", label: "Receipts", count: h.receipts.length },
+          { value: "invoices", label: "Invoices", count: h.invoices.length },
+          { value: "returns", label: "Returns", count: h.returns.length },
+          { value: "prices", label: "Prices" },
         ]}
       />
       {tab === "profile" && (
         <Panel title="Details" className="max-w-xl">
           <KV
             items={[
-              ["Address", s.address],
-              ["Email", s.email || "—"],
-              ["Tax ID", s.tin || "Not provided"],
-              ["Payment terms", s.terms],
+              ["Address", s.address ?? "—"],
+              ["Email", s.email ?? "—"],
+              ["Tax ID", s.tax_id ?? "Not provided"],
+              ["Payment terms", s.payment_terms],
               ["Currency", s.currency],
+              ...Object.entries(h.ageing).map(([k, v]) => [`Owed: ${k.replace("_", " ")}`, usd(num(v))] as [string, string]),
             ]}
           />
         </Panel>
       )}
       {tab === "orders" && (
         <DataTable
-          rows={pos}
+          rows={h.purchase_orders}
           exportName="supplier-pos"
           columns={[
-            { key: "id", header: "PO" },
-            { key: "date", header: "Date" },
-            {
-              key: "total",
-              header: "Total",
-              align: "right",
-              render: (r) => usd(r.total),
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
+            { key: "po_no", header: "PO" },
+            { key: "total", header: "Total", align: "right", render: (p) => usd(num(p.total)) },
+            { key: "status", header: "Status", render: (p) => <StatusBadge status={p.status} /> },
           ]}
         />
       )}
       {tab === "receipts" && (
         <DataTable
-          rows={grn}
+          rows={h.receipts}
           exportName="supplier-receipts"
           columns={[
-            { key: "id", header: "Receipt" },
-            { key: "po", header: "PO" },
-            { key: "date", header: "Date" },
-            {
-              key: "value",
-              header: "Value",
-              align: "right",
-              render: (r) => usd(r.value),
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
+            { key: "gr_no", header: "Receipt" },
+            { key: "value", header: "Value", align: "right", render: (g) => usd(num(g.value)) },
+            { key: "status", header: "Status", render: (g) => <StatusBadge status={g.status} /> },
           ]}
         />
       )}
       {tab === "invoices" && (
         <DataTable
-          rows={inv}
+          rows={h.invoices}
           exportName="supplier-invoices"
           columns={[
-            { key: "id", header: "Invoice" },
-            { key: "due", header: "Due" },
-            {
-              key: "amount",
-              header: "Amount",
-              align: "right",
-              render: (r) => usd(r.amount),
-            },
-            { key: "age", header: "Ageing" },
-            {
-              key: "status",
-              header: "Status",
-              render: (r) => <StatusBadge status={r.status} />,
-            },
+            { key: "invoice_no", header: "Invoice" },
+            { key: "invoice_date", header: "Date" },
+            { key: "due_date", header: "Due" },
+            { key: "amount", header: "Amount", align: "right", render: (i) => usd(num(i.amount)) },
+            { key: "paid_amount", header: "Paid", align: "right", render: (i) => usd(num(i.paid_amount)) },
+            { key: "match_status", header: "Match", render: (i) => <StatusBadge status={i.match_status} /> },
+            { key: "status", header: "Status", render: (i) => <StatusBadge status={i.status} /> },
           ]}
         />
       )}
       {tab === "returns" && (
         <DataTable
-          rows={ret}
+          rows={h.returns}
           exportName="supplier-returns"
           columns={[
-            { key: "id", header: "Return" },
-            { key: "items", header: "Items" },
-            {
-              key: "value",
-              header: "Value",
-              align: "right",
-              render: (r) => usd(r.value),
-            },
-            { key: "reason", header: "Reason" },
+            { key: "return_no", header: "Return" },
+            { key: "value", header: "Value", align: "right", render: (r) => usd(num(r.value)) },
           ]}
         />
       )}
       {tab === "prices" && (
         <DataTable
-          rows={items.map((i) => ({
-            id: i.id,
-            name: i.name,
-            last: i.cost,
-            prev: +(i.cost * 0.96).toFixed(2),
-            unit: i.unit,
-          }))}
+          rows={h.item_prices.map((p) => ({ ...p, id: p.ingredient_id, item: ing(p.ingredient_id), per: unit(p.uom_id) }))}
           exportName="supplier-prices"
+          emptyTitle="No prices recorded yet; they are taken from purchase orders."
           columns={[
-            { key: "name", header: "Item" },
-            {
-              key: "prev",
-              header: "Previous",
-              align: "right",
-              render: (r) => usd(r.prev),
-            },
-            {
-              key: "last",
-              header: "Latest",
-              align: "right",
-              render: (r) => usd(r.last),
-            },
-            { key: "unit", header: "Per" },
+            { key: "item", header: "Ingredient" },
+            { key: "unit_price", header: "Last price", align: "right", render: (p) => `${usd(num(p.unit_price))} / ${p.per}` },
           ]}
         />
       )}

@@ -69,6 +69,8 @@ def test_at_pur_03_over_receipt_needs_approval_then_invoice_and_payment(api):
     gr_line = gm.get("/goods-receipts").json()[0]["lines"][0]["id"]
     ret = inv.post("/purchase-returns", {"gr_id": gr["id"], "reason": "Damaged bags", "lines": [{"gr_item_id": gr_line, "quantity": "5"}]}).json()
     assert money(ret["total_value"]) == Decimal("5")
+    listed = gm.get("/purchase-returns").json()[0]
+    assert listed["id"] == ret["id"] and listed["gr_id"] == gr["id"] and listed["supplier_id"] == s["id"] and money(listed["lines"][0]["quantity"]) == 5
     # invoice matching: 55 received - 5 returned = 50
     inv1 = acct.post("/supplier-invoices", {"supplier_id": s["id"], "invoice_no": "INV-1", "invoice_date": date.today().isoformat(),
                                             "due_date": (date.today() + timedelta(days=30)).isoformat(), "amount": "50.00", "gr_ids": [gr["id"]]}).json()

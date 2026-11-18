@@ -25,6 +25,7 @@ import {
   StatusBadge,
   useTab,
 } from "@/components/rms/kit"
+import { ReconciliationTab } from "@/components/rms/operations"
 import { PaymentDialog } from "@/components/rms/pos-dialogs"
 import * as billing from "@/lib/api/billing"
 import { refreshOrder, report, withApproval } from "@/lib/api/pos"
@@ -294,12 +295,12 @@ export default function BillingPage() {
           ]}
         />
       )}
-      {tab === "reconciliation" && (
-        <Notice tone="info">
-          Matching electronic payments against bank or provider statements is not
-          available yet. GrabFood payouts are reconciled under Delivery.
-        </Notice>
-      )}
+      {tab === "reconciliation" &&
+        (can(me, "payments.reconcile") ? (
+          <ReconciliationTab />
+        ) : (
+          <Notice tone="info">Reconciling payments with bank statements needs the accountant or a manager. GrabFood payouts are reconciled under Delivery.</Notice>
+        ))}
       <RecordDialog
         open={!!refundFor}
         onOpenChange={(o) => !o && setRefundFor(null)}

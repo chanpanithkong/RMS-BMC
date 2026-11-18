@@ -110,6 +110,8 @@ def test_at_inv_03_blind_count_and_variance(api, engine):
     assert money(sub["lines"][0]["variance"]) == Decimal("-0.5")
     assert inv.post(f"/inventory/counts/{c['id']}/decision", {"approve": True}).status_code == 403  # no inventory.approve, and own count
     assert gm.post(f"/inventory/counts/{c['id']}/decision", {"approve": True}).json()["status"] == "Posted"
+    listed = next(x for x in inv.get("/inventory/counts").json() if x["id"] == c["id"])
+    assert listed["status"] == "Posted" and listed["posted_at"] and money(listed["lines"][0]["variance_value"]) == Decimal("-0.50")
     with engine.connect() as conn:
         q = conn.execute(text("select quantity, source_type from inventory_transactions where txn_type='COUNT_ADJUSTMENT'")).one()
     assert q == (Decimal("-0.5000"), "StockCount")
@@ -125,6 +127,8 @@ def test_transfer_batches_and_menu_wastage(api):
     inv.post(f"/inventory/documents/{d['id']}/post")
     t = inv.post("/inventory/transfers", {"from_location_id": locs["Dry store"], "to_location_id": locs["Chiller"], "lines": [{"ingredient_id": rice, "quantity": "5", "uom_id": units["kg"]}]})
     assert t.status_code == 201
+    listed = inv.get("/inventory/transfers").json()[0]
+    assert listed["id"] == t.json()["id"] and listed["from_location_id"] == locs["Dry store"] and money(listed["lines"][0]["quantity"]) == 5
     bal = {(b["location_name"], b["ingredient_code"]): b for b in inv.get("/inventory/balances").json()}
     assert money(bal[("Dry store", "ING-001")]["quantity"]) == 15 and money(bal[("Chiller", "ING-001")]["quantity"]) == 5
     assert money(bal[("Chiller", "ING-001")]["avg_cost"]) == Decimal("1.1")

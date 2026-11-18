@@ -64,6 +64,8 @@ def test_at_inv_04_correction_by_reversal_and_threshold(api):
     big = post_doc(u, "Adjustment", locs["Chiller"], [{"ingredient_id": pork, "quantity": "-8", "uom_id": units["kg"]}], "Count correction").json()
     assert big["status"] == "PendingApproval" and on_hand(u, pork) == Decimal("9.8")
     assert gm.post(f"/inventory/documents/{big['id']}/decision", {"approve": True}).json()["status"] == "Posted"
+    docs = u.get("/inventory/documents?doc_type=Adjustment").json()
+    assert docs[0]["id"] == big["id"] and docs[0]["created_at"] and all(d["doc_type"] == "Adjustment" for d in docs)
     assert on_hand(u, pork) == Decimal("1.8")
 
 

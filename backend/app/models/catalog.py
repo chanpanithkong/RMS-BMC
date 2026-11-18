@@ -1,9 +1,9 @@
 """Configuration, menu and seating tables (SRS §10.2 Menu, Billing setup, Tables)."""
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, Numeric, SmallInteger, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, Numeric, SmallInteger, String, Text, Time, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, TSTZRANGE, Range
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -139,10 +139,21 @@ class MenuItemVariant(IdMixin, TimestampMixin, Base):
 
 
 class PriceList(IdMixin, Base):
+    """FR-MENU-008: Standard plus time-based lists (happy hour, delivery, staff...). A list with no rules is only used where it is
+    chosen explicitly (e.g. the online price list setting); a list with rules applies automatically while they match, highest priority first."""
+
     __tablename__ = "price_lists"
     code: Mapped[str] = mapped_column(String(30), unique=True)
     name: Mapped[str] = mapped_column(String(60))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    days_of_week: Mapped[list[int]] = mapped_column(ARRAY(SmallInteger), default=list, server_default="{}")  # 0 = Monday; empty = every day
+    time_from: Mapped[time | None] = mapped_column(Time)
+    time_to: Mapped[time | None] = mapped_column(Time)
+    channels: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")  # POS, Online, QR, Platform; empty = all
+    order_types: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")  # DineIn, Takeaway, Delivery; empty = all
+    branch_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")  # empty = all branches
+    auto_apply: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class MenuPrice(IdMixin, Base):
