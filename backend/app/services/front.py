@@ -146,6 +146,9 @@ def merge(ctx: Ctx, keep: Customer, merge_from: Customer) -> Customer:
     db.execute(update(Reservation).where(Reservation.customer_id == merge_from.id).values(customer_id=keep.id))
     db.execute(update(CustomerAddress).where(CustomerAddress.customer_id == merge_from.id).values(customer_id=keep.id))
     keep.loyalty_points += merge_from.loyalty_points
+    from app.services.loyalty import move_on_merge
+
+    move_on_merge(ctx.db, merge_from.id, keep.id)
     keep.no_show_count += merge_from.no_show_count
     if not keep.phone_e164 and merge_from.phone_e164:
         phone, merge_from.phone_e164 = merge_from.phone_e164, None
@@ -270,6 +273,10 @@ def create_reservation(ctx: Ctx, data: dict) -> Reservation:
     ctx.db.add(r)
     ctx.db.flush()
     assign_tables(ctx, r, data.get("table_ids") or [])
+    if r.status == "Confirmed":
+        from app.services import sms
+
+        sms.reservation_message(ctx.db, r, "confirmed")  # FR-RSV-009
     audit(ctx.db, ctx, "reservation.create", "Reservation", r.id, after={"at": r.reserved_at, "party": r.party_size, "tables": data.get("table_ids")})
     emit(ctx.db, f"tables:{ctx.branch_id}", "reservation.created", {"reservation_id": str(r.id)})
     return r
@@ -304,6 +311,11 @@ def update_reservation(ctx: Ctx, r: Reservation, data: dict) -> Reservation:
     if table_ids is not None or {"reserved_at", "duration_minutes", "party_size"} & set(data):
         ids = table_ids if table_ids is not None else [t.table_id for t in r.tables if t.active]
         assign_tables(ctx, r, ids)
+    if "reserved_at" in data and r.status == "Confirmed":
+        from app.services import sms
+
+        r.reminder_sent_at = None
+        sms.reservation_message(ctx.db, r, "confirmed")  # new time: new confirmation (the dedupe key includes the time)
     audit(ctx.db, ctx, "reservation.update", "Reservation", r.id, before=before, after={**data, "tables": table_ids})  # FR-RSV-004 history
     return r
 
@@ -420,7 +432,10 @@ def set_waiting_status(ctx: Ctx, wid: uuid.UUID, status: str) -> WaitlistEntry:
         raise Conflict("INVALID_STATUS_TRANSITION", f"Can't move from {w.status} to {status}.")
     w.status = status
     if status == "Notified":
-        w.notified_at = utcnow()  # AT-RSV-03; external SMS goes through the outbox when a channel is configured (Phase 3)
+        w.notified_at = utcnow()  # AT-RSV-03
+        from app.services import sms
+
+        sms.waitlist_ready(ctx.db, w)  # FR-RSV-009
     elif status == "Seated":
         w.seated_at = utcnow()
     audit(ctx.db, ctx, f"waitlist.{status.lower()}", "WaitlistEntry", w.id)

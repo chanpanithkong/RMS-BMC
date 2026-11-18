@@ -2,7 +2,7 @@
 
 Backend for the Restaurant Management System described in `Restaurant_Management_System_SRS.docx` (RMS-SRS-001). It serves the Next.js app in `../frontend`.
 
-**Status:** Phase 1 (core restaurant operations) and Phase 2 (business control) are built and tested. Phase 3 is not started. See [Scope and known gaps](#scope-and-known-gaps) and `../docs/TRACEABILITY.md` for each of the 332 functional requirements.
+**Status:** Phase 1 (core restaurant operations) and Phase 2 (business control) are built and tested. Phase 3 has multi-branch, delivery management, online and QR ordering, and loyalty built and tested; online payment by Bakong KHQR is built (tested against NBC's documented formats, not yet against live Bakong); customer SMS through PlasGate and phone sign-in accounts are built (tested against PlasGate's documented request format, not yet against live PlasGate). See [Scope and known gaps](#scope-and-known-gaps) and `../docs/TRACEABILITY.md` for each of the 332 functional requirements.
 
 > Tax, service-charge, exchange-rate and approval-limit values in the seed data are the SRS's **illustrative** values. They are stored as unverified and must be confirmed against current official Cambodian sources (SRS §5.4, V-01, V-04) before use. Nothing here claims legal or tax compliance.
 
@@ -58,17 +58,18 @@ Key behaviours:
 backend/
 ├── app/
 │   ├── main.py                 FastAPI app, CORS, correlation IDs
-│   ├── core/                   config, database, security, dependencies, exceptions, realtime
+│   ├── core/                   config, database, security, dependencies, exceptions, realtime, ratelimit
 │   ├── api/v1/router.py        mounts every module under /api/v1
 │   ├── api/v1/endpoints/       auth, users, menu, orders, kitchen_tables, money, inventory, config, platform, reports_ws,
-│   │                           front (customers, reservations), staff_expenses, recipes_stock, purchasing, promotions
-│   ├── models/                 identity, catalog (config/menu/tables), orders, money (bills/payments/cash), inventory, phase2
+│   │                           front (customers, reservations), staff_expenses, recipes_stock, purchasing, promotions,
+│   │                           branches, delivery, online (public routes under /public)
+│   ├── models/                 identity, catalog (config/menu/tables), orders, money (bills/payments/cash), inventory, phase2, phase3
 │   ├── schemas/                common, identity, menu, orders
 │   ├── services/               auth, menu, orders, kitchen, billing, cash, inventory, reports, reports_advanced, pricing, platform, seed,
-│   │                           front, recipes, purchasing, promotions
+│   │                           front, recipes, purchasing, promotions, branches, delivery, online
 │   ├── permissions/catalog.py
 │   ├── workers/celery_app.py
-│   ├── integrations/email.py
+│   ├── integrations/           email, payments (sandbox gateway only)
 │   └── utils/                  ids (UUID v7), money, timeutil (business date)
 ├── alembic/                    migrations (never drop tables automatically)
 ├── scripts/seed.py             idempotent reference and demo data
@@ -104,7 +105,12 @@ Copy `.env.example` to `.env` (git-ignored) and fill in:
 | `FRONTEND_URL` | CORS origin(s), comma separated |
 | `REDIS_URL` | Optional. Shares WebSocket events across API workers and is the Celery broker. |
 | `APP_ENV` | `development` allows the refresh cookie over plain http; any other value marks it `Secure`. |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional email delivery for password resets. Without them, emails are logged. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional email delivery (password resets, purchase orders, online order confirmations). Without them, emails are logged. |
+| `PAYMENT_GATEWAY`, `PAYMENT_SANDBOX_SECRET` | Online payment: `bakong` (KHQR), or `sandbox` (a test gateway, refused when `APP_ENV=production`). Leave empty to offer pay at pickup or on delivery only. |
+| `SMS_PROVIDER`, `PLASGATE_*` | Customer SMS through PlasGate (`plasgate`): private key, secret and the sender ID agreed with PlasGate. Empty = messages are logged only and phone sign-in is unavailable. |
+| `GRABFOOD_*` | GrabFood: the partner client ID/secret RMS issues to Grab (Grab uses them to get a token for the webhooks), the OAuth client Grab issues to RMS, and Grab's API and auth URLs. |
+| `BAKONG_*` | Bakong KHQR: API URL and token (from the Bakong Open API site, valid 90 days), receiving Bakong account, merchant type (`individual` tag 29 or `merchant` tag 30 with merchant ID and acquiring bank), name (max 25), city, MCC and QR lifetime (max 10 minutes). |
+| `PUBLIC_RATE_LIMIT_PER_MINUTE` | Requests per IP per minute on public online-ordering routes (checkout is capped lower). Shared across workers only with `REDIS_URL`. |
 
 No credentials appear in source files.
 
@@ -131,7 +137,7 @@ python -m uvicorn app.main:app --reload --port 8000
 * Health: <http://localhost:8000/api/v1/health> (also checks the database)
 * Swagger UI: <http://localhost:8000/api/v1/docs>, ReDoc: `/api/v1/redoc`, spec: `/api/v1/openapi.json`
 
-Background worker (optional locally, needs `REDIS_URL`):
+Background worker (optional locally, needs `REDIS_URL`). It delivers queued emails, verifies the audit chain daily, holds reserved tables and marks no-shows every 5 minutes, expires loyalty points hourly, checks pending KHQR payments with Bakong, sends queued SMS and runs background reports every 10 seconds, queues reservation reminders every 5 minutes, and refreshes the analytics summaries every 15 minutes:
 
 ```bash
 celery -A app.workers.celery_app worker -B -l info
@@ -170,6 +176,8 @@ All routes are under `/api/v1` (SRS §13.1).
 
 Endpoint groups: `auth`, `approvals`, `users`, `roles`/`permissions`, `menu-categories`, `menu-items` (prices, availability/86, modifier groups), `modifier-groups`, `menu/pos`, `orders` (items, send, cancel, discounts, hold, transfer, serve, timeline), `kitchen` (stations, open tickets, item status, bump, recall, priority, waste outcome), `dining-areas`, `tables` (seat, state, out of service), `table-groups`, `orders/{id}/bills`, `bills`, `payments`, `refunds`, `cashier-sessions`, `inventory` (items, units, locations, balances, transactions, documents), `settings`, `exchange-rates`, `tax-profiles`, `payment-methods`, `kitchen-stations`, `reason-codes`, `branches`, `devices`, `day-end/close`, `notifications`, `audit-logs`, `dashboard`, `reports`, and the WebSocket `/api/v1/ws`.
 
+Phase 3 groups: `branches` (create), `menu-items/{id}/branch-assignment`, `branch-transfers` (dispatch, receive, cancel), `branch-comparison`, `delivery-zones`, `deliveries` (assign, out, delivered, failed, redeliver, mine, performance), `orders/{id}/delivery-fee`, `ready-board`, `platform-orders`, `platform-settlements` (reconciliation), `online-orders` (accept, reject), `online-ordering/pause`, `tables/{id}/qr-code`, `customers/{id}/loyalty` (and `/adjust`), `orders/{id}/loyalty-redemption`, `accounting/mapping`, `accounting/journals` (and `/xero.csv`), `platform-orders/{order_id}/accept|reject`, `credit-accounts` (statement, settlements), `bills/{id}/charge-to-account`, `analytics/summary|rebuild|menu-engineering`, `reports/{id}/jobs`, `report-jobs` (and `/download`), `platform-item-maps`, `integrations/grabfood/inbound`, the GrabFood webhooks `integrations/grabfood/oauth/token|orders|order/state|merchant/menu|menu-sync-state|pushIntegrationStatus|pushGrabMenu`, `integrations/grabfood/menu/preview|sync`, and the public routes `/public/branches/{code}/menu|delivery-zones|quote|orders`, `/public/track/{token}` (and `/payment`), `/public/branches/{code}/account/code|verify`, `/public/account` (and `/orders`, `/sign-out`), `/public/qr/{token}` (and `/orders`), `/public/payments/{provider}/callback`.
+
 Phase 2 groups: `customers` (search, duplicates, merge, anonymise, attach to order), `reservations` (availability, seat, no-show, process-holds), `waitlist`, `departments`, `positions`, `employees` (clock in/out, activity), `shift-schedules`, `expense-categories`, `expenses` (attachments, submit, decision, pay, reverse, summary), `recipes` (versions, publish, cost, unmapped items), `inventory/counts`, `inventory/transfers`, `inventory/expiring`, `inventory/menu-wastage`, `suppliers` (history), `reorder-suggestions`, `purchase-requests`, `purchase-orders`, `goods-receipts`, `purchase-returns`, `supplier-invoices` (payments), `promotions` (codes), `orders/{id}/promotions` and `orders/{id}/promo-codes`.
 
 Reports take `date_from`, `date_to` and, where they apply, `user_id`, `customer_id`, `supplier_id`, `station_code` and `category`. The dashboard takes `trend=day|week|month`.
@@ -207,7 +215,7 @@ Run:
 python -m pytest
 ```
 
-The suite applies the real Alembic migrations, seeds once, snapshots the seeded rows, and restores the snapshot before every test. It covers authentication, authorisation, users, menu, POS, orders, kitchen, billing calculations, payments, refunds, inventory, cashier sessions, audit integrity, configuration, reports, WebSockets, idempotent replays and concurrent payments, plus the Phase 2 acceptance tests (customers, reservations, expenses, cashier expected cash, recipes and food cost, stock counts, transfers, purchasing, promotions including concurrent code redemption, and the advanced reports). 78 tests, about a minute.
+The suite applies the real Alembic migrations, seeds once, snapshots the seeded rows, and restores the snapshot before every test. It covers authentication, authorisation, users, menu, POS, orders, kitchen, billing calculations, payments, refunds, inventory, cashier sessions, audit integrity, configuration, reports, WebSockets, idempotent replays and concurrent payments, plus the Phase 2 acceptance tests (customers, reservations, expenses, cashier expected cash, recipes and food cost, stock counts, transfers, purchasing, promotions including concurrent code redemption, and the advanced reports) and Phase 3 (multi-branch, delivery, platform settlements, online and QR ordering, the sandbox payment callback, rate limiting, loyalty, Bakong KHQR, SMS and phone sign-in, accounting export, GrabFood import and menu sync, customer credit accounts, analytics). 118 tests, a few minutes.
 
 ## Deployment
 
@@ -232,15 +240,35 @@ Built (Phase 2):
 * **Promotions:** percent, amount, fixed price and buy-X-get-Y for the order, an item or a category. Validity by date, day, time window, branch, order type and customer segment. Priority and combination rules, with reasons for promotions that don't apply. Case-insensitive codes with total and per-customer limits, counted under a row lock.
 * **Reports and dashboard:** RPT-05, 08, 09, 10, 15, 16, 19, 20, 21, 22, 23, 25 and 26; dashboard trends, theoretical food cost, approved expenses and an indicative operating result.
 
+Built (Phase 3 so far):
+
+* **Multi-branch:** create branches (with default stations and storage locations), branch menu assignment and prices, suppliers shared or restricted by branch, inter-branch transfers (dispatch at the source's cost, in transit, receive with variance and reason, cancel back to source), branch comparison and RPT-06 for users with `report.cross_branch`, limited to their own branches.
+* **Delivery:** zones with fee, free-delivery threshold, minimum order and the fee's own tax profile; delivery orders with address, landmark and map point; fee override with permission and reason; riders (new Delivery Rider role) with their own view; Assigned, Out for delivery, Delivered (recipient name), Failed and re-delivery; takeaway ready board; delivery performance; scheduled pickup/delivery time.
+* **Delivery platforms:** platform orders with a reference unique per platform and commission (rate or amount), paid with the `PLATFORM` method; commission is a cost, never a discount; settlement statements reconciled line by line with every difference listed.
+* **Online and QR ordering:** public menu per branch, quote, checkout with full server-side validation (availability, channel, prices, modifiers, quantity, opening hours, lead time, minimum order, zone, promotion codes) and `PRICE_CHANGED` when totals moved; idempotent submission; signed, expiring tracking links; confirmation email; staff accept or reject; pause per branch; table QR codes that create or add to the table's order, with staff confirmation by default; rate limits on public routes; online payment by Bakong KHQR (dynamic QR per NBC's KHQR guideline, confirmed by polling `check_transaction_by_md5`; the receiving account, currency and amount must all match before a `KHQR` payment is recorded; codes expire after at most 10 minutes and can be reissued) or, for development, a sandbox with a signed callback.
+* **Loyalty (owner's rules for D-14):** 1 point per whole 1.00 USD of net sales (after discounts; no tax, service charge or delivery fee), earned once when an order with a customer completes, on every channel including orders with promotions; 100 points = 1.00 USD off as the order-level discount, never more than the order; each lot expires 12 months after it was earned and the oldest points are used first. Removing a redemption or cancelling the order returns the points, refunds take back points in proportion, managers can adjust with a reason, and online orders from a known phone number earn too. Off until a manager sets `loyalty.enabled`.
+* **Customer SMS (PlasGate):** online order updates (received with the tracking link, accepted, rejected, ready for pickup, out for delivery), reservation confirmations (again when the time changes), one reminder before the booking (120 minutes by default) and waiting-list "table ready". Messages are queued in the same transaction as the change, de-duplicated, and sent by the worker with up to 5 attempts and exponential back-off (30 s to 4 min). Off until a manager sets `sms.enabled`.
+* **Online customer accounts:** sign in with a 6-digit code sent by SMS (10 minutes, 5 tries, 3 codes per 15 minutes per phone, only a hash stored). The first sign-in creates the customer record with name and phone only. Signed-in customers see their own orders and loyalty points; their online orders are linked to them.
+* **Accounting export (Xero):** one balanced manual journal per branch and business day (`GET /accounting/journals` to review, `/accounting/journals/xero.csv` to import into Xero), covering sales by category, discounts, service charge, tax, delivery fees, payments by method, KHR rounding, refunds, cash over/short, platform commissions, stock movements at weighted average cost, expenses and supplier invoices and payments. Xero manual journals can't post to bank, receivable or payable accounts, so money goes through clearing accounts the accountant settles in Xero. Needs `accounting.export` (Owner, Accountant).
+* **GrabFood import:** Grab sends orders to RMS (Submit order webhook) and state changes (Push order state webhook), authenticated with a token RMS issues through its partner OAuth endpoint. Orders arrive in RMS as platform orders priced from the RMS menu; Grab's own total (KHR, minor units) is stored and a difference is flagged. Staff accept or reject each order (owner's choice): accepting records the PLATFORM payment, sends it to the kitchen and tells Grab (`/partner/v1/order/prepare`); when the kitchen finishes, RMS marks it ready at Grab; COLLECTED/DELIVERED completes it; a Grab cancellation alerts the manager. Every webhook is logged with what RMS did. Menu IDs: RMS variant/modifier IDs, or codes mapped in `platform-item-maps`; an order with unknown IDs is logged for manual entry.
+* **Grab menu sync:** RMS answers Grab's Get menu webhook with the branch's menu in Grab's selling-time structure: categories, one Grab item per RMS variant, modifier groups and modifiers, Khmer names with English translations, the branch opening hours as the selling time, and tax-inclusive prices converted to KHR minor units at today's rate in 100-riel steps. Items in the `menu_channel` (default Online) are included; items not sold at the branch are left out and 86'd items are sent as unavailable. `POST /integrations/grabfood/menu/sync` asks Grab to pull the full menu (Grab recommends once a day, off-peak); marking an item sold out or back sends an immediate menu record update. Menu sync failures and integration status changes alert managers. The first Get menu during activation stores the Grab merchant ID for the branch.
+* **Customer credit accounts (owner's decisions for D-07):** the Owner, GM or Accountant opens an account for a customer or company with a credit limit and terms (30 days by default). Staff charge an unpaid bill to the account (`POST /bills/{id}/charge-to-account`); it is recorded as an `ON_ACCOUNT` payment so the bill is settled and the sale counted, and the account ledger gets a charge due after the terms. A charge over the limit, or any charge while the account has an overdue amount, needs a manager's approval on the device (`credit_override`). Settlements pay off the oldest charges first; cash settlements go into the cashier's session. Refunds of on-account payments credit the account. Statements show opening and closing balances and ageing by due date. Off until a manager sets `credit.enabled`.
+* **Analytics (owner's choice for "advanced analytics"):** daily summary tables per branch (sales by item, category, hour, payment method and employee; ingredient consumption) as in SRS §12, rebuilt at day-end close and refreshed every 15 minutes for today and yesterday, with `POST /analytics/rebuild` for history; `GET /analytics/summary` reads them. `GET /analytics/menu-engineering` classifies items as Star, Plowhorse, Puzzle or Dog (Kasavana-Smith: 70 % popularity rule, quantity-weighted average contribution margin); items without recipe cost are listed as Unclassified. Long reports run in the background (`POST /reports/{id}/jobs`) with the requester's current permissions and give a CSV that only the requester can download for 24 hours (audited); expired files are deleted.
+
 Assumptions to confirm:
 
 * Phase 2 approval limits are placeholders, not SRS values: purchase orders (branch manager 500, GM 5,000) and expenses (supervisor 50, branch manager 300, GM 2,000). So are the receipt and price tolerances (5%) and the kitchen late threshold (`late_ticket_minutes`, 15). Change them in role limits and settings.
 * Recipe versions are Published with an `effective_from` time rather than carrying a single Active flag. The version in effect is the latest published one whose time has passed.
 * Per-order net sales in RPT-05, 08, 09 and 23 is the discounted subtotal of completed orders. RPT-01 and the dashboard also deduct refunds.
+* Phase 3 placeholders: online ordering lead time 20 minutes, 20 items per line, tracking links valid 24 hours, public limit 60 requests per minute. Platform commission rates are calculated on the order total including tax. Branch opening hours are read as `HH:MM-HH:MM`.
 
 Not built yet:
 
-* **Phase 3:** multi-branch consolidation, cross-branch transfers and RPT-06, online ordering, delivery platforms, payment gateway integration, external notifications (SMS and messaging), loyalty points and customer credit accounts.
+* **PlasGate go-live checks:** PlasGate publishes the request format only, so any 2xx reply counts as accepted and delivery reports aren't processed. Messages are in English; confirm Khmer (Unicode) support, message length and sender ID registration with PlasGate before switching on, and send a few test messages.
+* **Xero set-up:** the account codes start as labelled placeholders (`GET /accounting/mapping`). The accountant sets the real codes, the Xero tax rate name for these lines, the date format and the tracking category in `PUT /settings/accounting`, then sets `mapping_confirmed`; the CSV is refused until then. Create the clearing accounts in Xero as ordinary (non-bank) accounts. Check one imported day against RPT-01 before relying on it. Inclusive taxes stay inside sales; KHR cash differences use the current exchange rate; an expense reversed after export needs a manual journal in Xero.
+* **GrabFood go-live checks:** built from Grab's public Partner API v1.1.3 docs and SDK; not yet run against Grab's staging project. Apply as a POS partner, set the partner endpoints in the developer portal (`https://<host>/api/v1/integrations/grabfood/...`), confirm the OAuth URL, set the branch's Grab merchant ID and commission rate in `PUT /settings/grabfood`, configure the store for manual acceptance (Grab cancels orders not answered within 5 minutes, so the worker must be running), and work through Grab's staging test cases. Check the menu preview (`GET /integrations/grabfood/menu/preview`) in Grab's Menu Simulator before the first sync; prices follow the KHR rate on the day of each full sync, and price changes reach Grab with the next full sync. Selling-time windows per category, service-based pricing, photos beyond one and Meal for One tags aren't used. Grab-side edits after acceptance and Grab cancellations are flagged for a manager rather than changed automatically.
+* **Bakong go-live checks:** the KHQR adapter follows NBC's published documents (KHQR guideline v1.4, QR Pay Integration v1.0.3, Open API v1.0.1) and its CRC matches NBC's sample, but it hasn't run against Bakong SIT or production yet. Before going live: register for a token, set the merchant details your bank gives you (including the MCC), pay a few test orders from a banking app on SIT, and plan for the 90-day token renewal. Bakong blocks API requests from outside Cambodia, so the server must call from a Cambodian network.
+* **Phase 3, waiting on decisions:** other delivery platforms, forecasting and period-over-period comparisons.
 * **Partial or missing in Phases 1 and 2:**
   * Report export is CSV only (no PDF or Excel), and there is no printable or PDF purchase order.
   * There is no print agent or printer fallback.
@@ -249,6 +277,10 @@ Not built yet:
   * Top-up bills after payment has started are rejected.
   * Financial setting changes need `settings.approve` rather than a separate change-request workflow.
   * Sub-recipes and batch production, recipe photos, first-expiry-first-out issuing, recurring expenses, combo-price promotions and staff-meal or comp discount types aren't built.
-  * Reservation holds and no-shows are processed by calling `POST /reservations/process-holds`; the worker doesn't schedule this yet.
   * A change to a promotion reaches an open order the next time that order changes.
   * Customer search speed at 50,000 records hasn't been measured.
+  * Riders can't attach a delivery photo yet; a failure is reported as unassigned once the delivery is sent out again.
+  * Public routes have rate limits and idempotency but no CAPTCHA or bot challenge.
+  * The existing reports still query the transactional tables; only the analytics endpoints read the summaries. Report files are stored on the API server's disk (`backend/uploads/reports`), not object storage.
+  * A bill charged to a credit account shows as Paid (method `ON_ACCOUNT`) rather than the SRS's separate `Credit` bill status, so existing payment, completion and sales logic applies unchanged. Accounts are restaurant-wide, settled in USD; customer statements are data only (no printed or emailed statement yet).
+  * A loyalty redemption is the order-level discount, so it can't be combined with another order-level discount or promotion (BR-037). Points aren't earned for a customer attached after the order completed, and a refund after the points were spent can leave a negative balance.

@@ -22,6 +22,7 @@ class Checkout:
 
 class SandboxGateway:
     name = "sandbox"
+    kind = "redirect"
 
     def __init__(self, secret: str):
         self._secret = secret.encode()
@@ -40,11 +41,16 @@ class SandboxGateway:
         return json.loads(body)
 
 
-def get_gateway(name: str | None = None) -> SandboxGateway | None:
+def get_gateway(name: str | None = None):
+    """The configured gateway, or None when online payment isn't available. Bakong needs its account, name and API token."""
     s = get_settings()
     configured = (s.PAYMENT_GATEWAY or "").lower()
     if name and name.lower() != configured:
         return None
     if configured == "sandbox" and s.PAYMENT_SANDBOX_SECRET and s.APP_ENV != "production":
         return SandboxGateway(s.PAYMENT_SANDBOX_SECRET)
+    if configured == "bakong" and s.BAKONG_ACCOUNT_ID and s.BAKONG_MERCHANT_NAME and s.BAKONG_API_TOKEN:
+        from app.integrations.bakong import BakongGateway
+
+        return BakongGateway(s)
     return None

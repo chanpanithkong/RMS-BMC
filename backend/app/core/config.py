@@ -41,9 +41,36 @@ class Settings(BaseSettings):
 
     # Online ordering (Phase 3). No real payment provider is integrated yet (V-06): "sandbox" is a test gateway
     # that is refused when APP_ENV=production. Leave PAYMENT_GATEWAY empty to offer pay-at-pickup/delivery only.
-    PAYMENT_GATEWAY: str = ""
+    PAYMENT_GATEWAY: str = ""  # "", "sandbox" (development only) or "bakong"
     PAYMENT_SANDBOX_SECRET: str = ""
+    # Bakong KHQR (NBC). SIT: https://sit-api-bakong.nbc.org.kh  Production: https://api-bakong.nbc.org.kh
+    BAKONG_API_URL: str = "https://sit-api-bakong.nbc.org.kh"
+    BAKONG_API_TOKEN: str = ""  # from the Bakong Open API site; expires after 90 days
+    BAKONG_ACCOUNT_ID: str = ""  # receiving Bakong account, e.g. name@bank
+    BAKONG_MERCHANT_TYPE: str = "individual"  # individual (KHQR tag 29) or merchant (tag 30)
+    BAKONG_MERCHANT_ID: str = ""  # tag 30 only
+    BAKONG_ACQUIRING_BANK: str = ""  # tag 30 only
+    BAKONG_MERCHANT_NAME: str = ""  # shown in the payer's app, max 25 characters
+    BAKONG_MERCHANT_CITY: str = "Phnom Penh"
+    BAKONG_MCC: str = "5999"  # NBC examples use 5999; confirm the code your bank registers for a restaurant
+    BAKONG_QR_MINUTES: int = 10
     PUBLIC_RATE_LIMIT_PER_MINUTE: int = 60
+
+    # SMS. "plasgate" sends through PlasGate's REST API; empty means messages are only logged (and phone sign-in is unavailable).
+    SMS_PROVIDER: str = ""
+    PLASGATE_API_URL: str = "https://cloudapi.plasgate.com"
+    PLASGATE_PRIVATE_KEY: str = ""
+    PLASGATE_SECRET: str = ""
+    PLASGATE_SENDER: str = ""  # sender ID agreed with PlasGate
+
+    # GrabFood partner integration. Grab calls RMS with the client ID/secret below (we issue them to Grab in the Grab
+    # developer portal); RMS calls Grab with the OAuth client Grab issues to us. Confirm the auth URL in the portal.
+    GRABFOOD_PARTNER_CLIENT_ID: str = ""
+    GRABFOOD_PARTNER_CLIENT_SECRET: str = ""
+    GRABFOOD_CLIENT_ID: str = ""
+    GRABFOOD_CLIENT_SECRET: str = ""
+    GRABFOOD_API_URL: str = "https://partner-api.grab.com/grabfood"
+    GRABFOOD_AUTH_URL: str = "https://partner-api.grab.com/grabid/v1/oauth2/token"
 
     @model_validator(mode="after")
     def _resolve(self) -> "Settings":

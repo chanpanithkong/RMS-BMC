@@ -62,7 +62,7 @@ Key decisions:
 | 7 | Phase 1 modules: CFG, MENU, TBL, ORD/POS, KDS, BILL, STAFF cashier sessions, basic INV, PROMO manual discounts, NOTIF in-app, AUD, DASH, RPT 01/02/03/04/07/11/12/13/14/17/18/24, DLV takeaway | Acceptance tests from §16 for these modules |
 | 8 | Frontend integration: OpenAPI → TypeScript types, typed client, integration guide; switch login first | Types generated, guide written |
 | 9 | Phase 2: CUST, RSV, RCP, advanced INV, PUR, EXP, STAFF schedules, promotions/codes, advanced RPT | Module tests (done; see `TRACEABILITY.md`) |
-| 10 | Phase 3: BRN, ONL, delivery platforms, payment gateway adapters, external notifications | Module tests |
+| 10 | Phase 3: BRN, ONL, delivery platforms, payment gateway adapters, external notifications | Module tests (BRN, DLV, ONL done with a sandbox gateway; loyalty, real gateway, SMS wait for D-13, D-14, V-06) |
 | 11–12 | Test completion, Docker Compose, README | Full suite green, compose up healthy |
 
 ## 5. Assumptions and open decisions carried from the SRS

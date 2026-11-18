@@ -39,6 +39,41 @@ def sales(ctx: Ctx, start: date, end: date) -> dict:
             "finalised_bills": bills}
 
 
+def shift_month(d: date, months: int = 1) -> date:
+    """The same day a month earlier, clamped to the month's length (31 March -> 28/29 February)."""
+    import calendar
+
+    y, m = divmod(d.month - 1 - months, 12)
+    year, month = d.year + y, m + 1
+    return d.replace(year=year, month=month, day=min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def previous_month(start: date, end: date) -> tuple[date, date]:
+    import calendar
+
+    p_start = shift_month(start)
+    last = calendar.monthrange(end.year, end.month)[1] == end.day
+    p_end = shift_month(end)
+    if last:
+        p_end = p_end.replace(day=calendar.monthrange(p_end.year, p_end.month)[1])
+    return p_start, p_end
+
+
+def _period_totals(ctx: Ctx, start: date, end: date) -> dict:
+    s = sales(ctx, start, end)
+    o = order_counts(ctx, start, end, s["net_sales"])
+    return {**s, "completed_orders": o["completed"], "cancelled_orders": o["cancelled"], "average_order_value": o["average_order_value"]}
+
+
+def _changes(cur: dict, prev: dict) -> dict:
+    out = {}
+    for k in ("gross_sales", "discounts", "refunds", "net_sales", "service_charges", "taxes", "delivery_fees", "finalised_bills", "completed_orders",
+              "average_order_value"):
+        a, b = Decimal(str(cur[k])), Decimal(str(prev[k]))
+        out[k] = {"amount": a - b, "percent": q((a - b) * 100 / b) if b else None}
+    return out
+
+
 def payments_by_method(ctx: Ctx, start: date, end: date) -> list[dict]:
     rows = ctx.db.execute(select(Payment.method_code, Payment.currency, func.count(), func.sum(Payment.amount_tendered - case((Payment.change_currency == Payment.currency, Payment.change_amount), else_=0)),
                                  func.sum(Payment.amount_base)).where(Payment.branch_id == ctx.branch_id, Payment.status == "Confirmed", Payment.business_date.between(start, end))
@@ -170,13 +205,21 @@ def run(ctx: Ctx, report_id: str, date_from: date | None, date_to: date | None, 
         summary = {**sales(ctx, start, end), "orders": order_counts(ctx, start, end, sales(ctx, start, end)["net_sales"])}
         rows = payments_by_method(ctx, start, end)
     elif report_id == "RPT-02":
+        # Daily RPT-01 measures, period totals and the comparison with the previous month (SRS §11.3)
+        p_start, p_end = previous_month(start, end)
         rows = []
         d = start
         while d <= end:
             s = sales(ctx, d, d)
-            rows.append({"business_date": d, **s})
+            o = order_counts(ctx, d, d, s["net_sales"])
+            prev_day = shift_month(d)
+            prev = sales(ctx, prev_day, prev_day)["net_sales"] if p_start <= prev_day <= p_end else None
+            rows.append({"business_date": d, **s, "completed_orders": o["completed"], "average_order_value": o["average_order_value"],
+                         "previous_month_date": prev_day, "previous_month_net_sales": prev})
             d += timedelta(days=1)
-        summary = sales(ctx, start, end)
+        cur, prv = _period_totals(ctx, start, end), _period_totals(ctx, p_start, p_end)
+        summary = {**cur, "previous_period": {"from": p_start, "to": p_end, **prv}, "change": _changes(cur, prv),
+                   "basis": "Previous period = the same dates one month earlier; a range ending on a month's last day compares with the whole previous month."}
     elif report_id in ("RPT-03", "RPT-04"):
         key = OrderItem.category_name_snapshot if report_id == "RPT-03" else OrderItem.item_name_en_snapshot
         data = db.execute(select(key, func.sum(OrderItem.quantity), func.sum(OrderItem.line_gross), func.sum(OrderItem.line_discount), func.sum(OrderItem.line_net))

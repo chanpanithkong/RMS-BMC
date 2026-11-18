@@ -82,7 +82,8 @@ def seed_reference(db: Session) -> dict:
                                                ("KHQR", "KHQR", "QR", ["USD", "KHR"], True, False), ("BANK_TRANSFER", "Bank Transfer", "Bank", ["USD"], True, False),
                                                ("CARD", "Card (terminal)", "Card", ["USD"], True, False),
                                                ("PLATFORM", "Delivery platform (paid by payout)", "Credit", ["USD"], True, False),
-                                               ("ONLINE", "Online payment (gateway)", "Card", ["USD"], True, False)]:
+                                               ("ONLINE", "Online payment (gateway)", "Card", ["USD"], True, False),
+                                               ("ON_ACCOUNT", "Customer credit account", "Credit", ["USD"], False, False)]:
         _get_or_create(db, PaymentMethod, {"code": code}, name=name, kind=kind, currencies=cur, reference_required=ref, change_allowed=change)
 
     profile = _get_or_create(db, TaxProfile, {"code": "STANDARD"}, name="Standard food and beverage")

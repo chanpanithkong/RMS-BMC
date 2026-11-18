@@ -120,3 +120,19 @@ def test_report_access_customer_history_and_exceptions(api):
     assert {"RPT-05", "RPT-08", "RPT-09", "RPT-10", "RPT-15", "RPT-22", "RPT-23", "RPT-25", "RPT-26"} <= ids
     exp = gm.get("/reports/RPT-08/export")
     assert exp.status_code == 200 and "DineIn" in exp.text
+
+
+def test_purchase_report_uses_business_date_not_utc_date(api, engine):
+    """A receipt posted at 05:00 in Phnom Penh is the previous day in UTC but belongs to today's business day (day-end 04:00)."""
+    from sqlalchemy import text
+
+    p, gm, inv = api("puroff"), api("gm"), api("invoff")
+    sup, po, units, locs, items = setup_po(p, gm, qty="10", price="1")
+    gr = inv.post("/goods-receipts", {"po_id": po["id"], "lines": [{"po_item_id": po["lines"][0]["id"], "qty_received": "10"}]}).json()
+    inv.post(f"/goods-receipts/{gr['id']}/post")
+    biz = gm.get("/auth/me").json().get("business_date") or date.today().isoformat()
+    with engine.begin() as conn:
+        conn.execute(text("update goods_receipts set posted_at = (CAST(:d AS date) + time '05:00') AT TIME ZONE 'Asia/Phnom_Penh'"), {"d": biz})
+        conn.execute(text("update purchase_orders set created_at = (CAST(:d AS date) + time '05:00') AT TIME ZONE 'Asia/Phnom_Penh'"), {"d": biz})
+    r = p.get(f"/reports/RPT-20?date_from={biz}&date_to={biz}").json()
+    assert r["rows"] and r["rows"][0]["receipts"] == 1 and r["rows"][0]["purchase_orders"] == 1

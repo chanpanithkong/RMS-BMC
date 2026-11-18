@@ -202,10 +202,17 @@ def rpt19(ctx: Ctx, start: date, end: date, f: dict):
 
 
 # ---------------------------------------------------------------- RPT-20 purchases
+def _bdate(ctx: Ctx, col):
+    """A timestamp column as the branch's business date (local time, before the day-end time counts as the previous day, BR-047).
+    Comparing UTC calendar dates with business dates misplaces records made between the day-end time and 07:00 in Cambodia."""
+    end = ctx.branch.day_end_time
+    return func.date(func.timezone(ctx.branch.timezone, col) - timedelta(hours=end.hour, minutes=end.minute))
+
+
 def _gr_lines(ctx: Ctx, start: date, end: date, supplier_id=None):
     stmt = select(GoodsReceipt, GoodsReceiptItem, PurchaseOrderItem).join(GoodsReceiptItem, GoodsReceiptItem.gr_id == GoodsReceipt.id).outerjoin(
         PurchaseOrderItem, PurchaseOrderItem.id == GoodsReceiptItem.po_item_id).where(GoodsReceipt.branch_id == ctx.branch_id, GoodsReceipt.status == "Posted",
-                                                                                     func.date(GoodsReceipt.posted_at).between(start, end))
+                                                                                     _bdate(ctx, GoodsReceipt.posted_at).between(start, end))
     if supplier_id:
         stmt = stmt.where(GoodsReceipt.supplier_id == supplier_id)
     return ctx.db.execute(stmt).all()
@@ -213,7 +220,7 @@ def _gr_lines(ctx: Ctx, start: date, end: date, supplier_id=None):
 
 def rpt20(ctx: Ctx, start: date, end: date, f: dict):
     po_stmt = select(PurchaseOrder.supplier_id, func.count(), func.sum(PurchaseOrder.total)).where(
-        PurchaseOrder.branch_id == ctx.branch_id, func.date(PurchaseOrder.created_at).between(start, end), PurchaseOrder.status != "Cancelled").group_by(PurchaseOrder.supplier_id)
+        PurchaseOrder.branch_id == ctx.branch_id, _bdate(ctx, PurchaseOrder.created_at).between(start, end), PurchaseOrder.status != "Cancelled").group_by(PurchaseOrder.supplier_id)
     pos = {s: (n, t) for s, n, t in ctx.db.execute(po_stmt)}
     per: dict = defaultdict(lambda: {"receipts": set(), "received_value": ZERO, "price_variance": ZERO})
     items: dict = defaultdict(lambda: {"qty": ZERO, "value": ZERO, "variance": ZERO})
@@ -259,13 +266,15 @@ def rpt21(ctx: Ctx, start: date, end: date, f: dict):
         po_ids = {gr.po_id for gr in grs.values() if gr.po_id}
         pos = {p.id: p for p in ctx.db.scalars(select(PurchaseOrder).where(PurchaseOrder.id.in_(po_ids or [None])))}
         dated = [gr for gr in grs.values() if gr.po_id and pos[gr.po_id].delivery_date]
-        on_time = sum(1 for gr in dated if gr.posted_at.date() <= pos[gr.po_id].delivery_date)
+        from app.utils.timeutil import business_date_for
+
+        on_time = sum(1 for gr in dated if business_date_for(gr.posted_at, ctx.branch.timezone, ctx.branch.day_end_time) <= pos[gr.po_id].delivery_date)
         po_lines = [(ln, pi) for _, ln, pi in mine if pi]
         accurate = sum(1 for ln, pi in po_lines if abs(ln.qty_received - pi.qty_ordered) <= pi.qty_ordered * tol)
         inv = ctx.db.execute(select(func.count(), func.coalesce(func.sum(SupplierInvoice.amount), 0)).where(
             SupplierInvoice.supplier_id == s.id, SupplierInvoice.branch_id == ctx.branch_id, SupplierInvoice.invoice_date.between(start, end))).one()
         paid = ctx.db.scalar(select(func.coalesce(func.sum(SupplierPayment.amount), 0)).join(SupplierInvoice, SupplierInvoice.id == SupplierPayment.invoice_id).where(
-            SupplierInvoice.supplier_id == s.id, SupplierInvoice.branch_id == ctx.branch_id, func.date(SupplierPayment.paid_at).between(start, end)))
+            SupplierInvoice.supplier_id == s.id, SupplierInvoice.branch_id == ctx.branch_id, _bdate(ctx, SupplierPayment.paid_at).between(start, end)))
         if not grs and not inv[0] and not paid and not f.get("supplier_id"):
             bal = purchasing.supplier_balance(ctx, s)
             if not bal["balance"]:

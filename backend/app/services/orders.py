@@ -119,6 +119,7 @@ def recalc(ctx: Ctx, order: Order) -> None:
 
 
 def refresh_statuses(ctx: Ctx, order: Order) -> None:
+    was_kitchen = order.kitchen_status
     items = live_items(order)
     if not items or all(i.item_status == "Pending" for i in items):
         order.kitchen_status = "NotSent"
@@ -128,6 +129,14 @@ def refresh_statuses(ctx: Ctx, order: Order) -> None:
         order.kitchen_status = "Ready"
     else:
         order.kitchen_status = "InProgress"
+    if order.kitchen_status == "Ready" and was_kitchen != "Ready" and order.channel == "Online" and order.order_type == "Takeaway":
+        from app.services import sms
+
+        sms.order_update(ctx.db, order, "ready")  # once per order (dedupe key)
+    if order.kitchen_status == "Ready" and was_kitchen != "Ready" and order.channel == "Platform":
+        from app.services import grabfood
+
+        grabfood.on_ready(ctx.db, order)  # tell Grab the food is ready (once)
     paid = paid_total(ctx.db, order)
     refunded = ctx.db.scalar(select(func.coalesce(func.sum(Bill.refunded_total), 0)).where(Bill.order_id == order.id, Bill.status != "Void")) or ZERO
     if refunded > 0:
@@ -146,6 +155,9 @@ def maybe_complete(ctx: Ctx, order: Order) -> None:
     if all(i.item_status in DELIVERED for i in items) and order.payment_status == "Paid":
         order.order_status, order.completed_at = "Completed", utcnow()
         log_event(ctx, order, "completed")
+        from app.services import loyalty
+
+        loyalty.earn(ctx, order)  # FR-PROMO-011: points on completion, once
         if order.table_id:
             table = ctx.db.get(RestaurantTable, order.table_id, with_for_update=True)
             others = ctx.db.scalar(select(func.count()).select_from(Order).where(Order.table_id == table.id, Order.order_status == "Open", Order.id != order.id))
@@ -436,6 +448,9 @@ def cancel_order(ctx: Ctx, order: Order, reason: str, approval_id: uuid.UUID | N
     for b in db.scalars(select(Bill).where(Bill.order_id == order.id, Bill.status == "Open")):
         b.status = "Void"
     order.order_status, order.cancelled_at, order.cancel_reason = "Cancelled", utcnow(), reason
+    from app.services import loyalty
+
+    loyalty.on_order_cancelled(ctx, order)  # redeemed points go back
     if order.order_type == "Delivery":
         from app.services import delivery
 
@@ -474,6 +489,11 @@ def apply_discount(ctx: Ctx, order: Order, item_id: uuid.UUID | None, kind: str,
                                                      OrderDiscount.order_item_id == item_id if item_id else OrderDiscount.order_item_id.is_(None)).with_for_update())
     if existing and existing.kind == kind and existing.value == value:
         raise Conflict("DISCOUNT_ALREADY_APPLIED", "This discount is already applied.")  # FR-PROMO-010
+    if existing is not None:
+        from app.services.loyalty import redemption_for
+
+        if redemption_for(db, existing.id):
+            raise Conflict("LOYALTY_REDEMPTION_APPLIED", "Points are redeemed on this order. Remove the redemption first.")
     approver = None
     if pct > ctx.limit("discount_pct") or amount > ctx.limit("discount_amount"):
         approver = consume_approval(ctx, approval_id, "discount", pct, order.id)
@@ -496,6 +516,9 @@ def remove_discount(ctx: Ctx, order: Order, discount_id: uuid.UUID) -> None:
         raise NotFound("Discount")
     if paid_total(ctx.db, order) > 0:
         raise Conflict("ORDER_PARTLY_PAID", "Discounts can't change after payment has started.")
+    from app.services import loyalty
+
+    loyalty.reverse_redemption(ctx, d, "Redemption removed")
     d.removed_at = utcnow()
     ctx.db.flush()
     recalc(ctx, order)

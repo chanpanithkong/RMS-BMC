@@ -286,4 +286,7 @@ def day_end(body: DayEndIn, ctx: Manage):
     row.value = {"closed_dates": [*row.value.get("closed_dates", []), bdate.isoformat()][-400:]}
     ctx.db.flush()
     audit(ctx.db, ctx, "day_end.close", "Branch", ctx.branch_id, after=summary, reason=body.reason)
+    from app.services import analytics
+
+    analytics.refresh_day(ctx.db, ctx.branch, bdate)  # the closed day's summaries, final as of now (SRS §12)
     return {**summary, "closed": True}

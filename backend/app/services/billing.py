@@ -276,6 +276,9 @@ def void_payment(ctx: Ctx, payment_id: uuid.UUID, reason: str, approval_id: uuid
     order = db.get(Order, bill.order_id)
     osvc.refresh_statuses(ctx, order)
     audit(db, ctx, "payment.void", "Payment", p.id, before={"status": "Confirmed"}, after={"status": "Voided", "approved_by": approver}, reason=reason)
+    from app.services import credit
+
+    credit.on_void(ctx, p)
     return p
 
 
@@ -342,6 +345,12 @@ def decide_refund(ctx: Ctx, refund_id: uuid.UUID, approve: bool, note: str | Non
     order = db.get(Order, bill.order_id)
     osvc.refresh_statuses(ctx, order)
     osvc.log_event(ctx, order, "refund", {"refund_no": r.refund_no, "amount_base": r.amount_base})
+    from app.services import loyalty
+
+    loyalty.clawback(ctx, order, r)  # points earned on refunded money are taken back
+    from app.services import credit
+
+    credit.on_refund(ctx, r)  # a refund of an on-account payment credits the account
     audit(db, ctx, "refund.approve", "Refund", r.id, after={"amount_base": r.amount_base, "approved_by": ctx.user_id, "requested_by": r.requested_by}, reason=note)
     return r
 

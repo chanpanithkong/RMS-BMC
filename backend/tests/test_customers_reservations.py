@@ -105,3 +105,18 @@ def test_at_rsv_03_waiting_list(api):
     assert r["status"] == "Notified" and r["notified_at"]
     assert w.post(f"/waitlist/{ids[0]}/notify").status_code == 409
     assert api("cook").get("/waitlist").status_code == 403
+
+
+def test_worker_sweeps_holds_and_no_shows(api, engine):
+    from sqlalchemy import text
+
+    from app.workers.celery_app import process_reservation_holds
+
+    s = api("supv")
+    t = tables(s)
+    r = s.post("/reservations", {"guest_name": "Walk-by", "reserved_at": tomorrow_at(19).isoformat(), "party_size": 2, "table_ids": [t["A2"]["id"]]}).json()
+    with engine.begin() as conn:
+        conn.execute(text("update table_reservations set reserved_at = now() - interval '20 minutes' where id = :i"), {"i": r["id"]})
+    out = process_reservation_holds()
+    assert list(out.values()) == [{"held_tables": 0, "no_shows": 1}]
+    assert [x["id"] for x in s.get("/reservations?status=NoShow").json()] == [r["id"]]

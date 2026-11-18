@@ -106,6 +106,19 @@ DEFAULT_SETTINGS: dict[str, dict] = {
     "online": {"enabled": False, "paused": False, "auto_accept": False, "lead_minutes": 20, "min_order": "0", "max_qty_per_line": 20, "price_list": None,
                "pay_later_allowed": True, "tracking_hours": 24},
     "qr": {"enabled": False, "require_staff_confirmation": True},
+    # Customer text messages (owner's choice: online order updates, verification codes, reservation messages). Off until enabled.
+    # Accounting export to Xero (owner's choice). Codes start as placeholders; set mapping_confirmed once the accountant has replaced them.
+    "accounting": {"accounts": {}, "method_accounts": {}, "category_accounts": {}, "expense_category_accounts": {}, "tax_rate_name": "Tax Exempt",
+                   "date_format": "%Y-%m-%d", "tracking_name": "Branch", "include_inventory": True, "include_expenses": True, "include_purchasing": True,
+                   "mapping_confirmed": False},
+    # GrabFood import per branch: Grab merchant ID, and the commission rate from the Grab agreement (for the cost estimate before settlement).
+    "grabfood": {"enabled": False, "merchant_id": None, "commission_rate": None, "menu_channel": "Online"},
+    # Customer credit accounts (owner's decisions for D-07): 30-day terms by default; over-limit or overdue charges need a manager.
+    "credit": {"enabled": False, "default_terms_days": 30},
+    "sms": {"enabled": False, "order_updates": True, "reservations": True, "reservation_reminder_minutes": 120, "customer_session_days": 30},
+    # Loyalty rules decided by the owner (D-14): 1 point per 1 USD of net sales, 100 points = 1.00 USD off, points expire 12 months after earning.
+    "loyalty": {"enabled": False, "points_per_usd": "1", "redeem_step_points": 100, "redeem_step_value": "1.00", "expiry_months": 12,
+                "earn_channels": ["POS", "QR", "Online", "Platform"], "earn_with_promotions": True},
     "reservations": {"default_duration_minutes": 90, "buffer_minutes": 15, "hold_minutes": 60, "grace_minutes": 15, "max_party_size": 20, "walkin_warning_minutes": 60},
     "purchasing": {"receipt_tolerance_pct": "5", "price_tolerance_pct": "5", "invoice_tolerance": "1.00", "separate_receiver": False},
     "recipes": {"target_food_cost_pct": "35"},

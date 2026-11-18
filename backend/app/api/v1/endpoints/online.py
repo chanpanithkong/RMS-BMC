@@ -14,12 +14,14 @@ from app.core.ratelimit import limit
 from app.models import DeliveryZone, OnlineOrder, Order, RestaurantTable
 from app.schemas.common import Strict
 from app.schemas.orders import ItemIn
+from app.services import customer_auth
 from app.services import online as svc
 from app.services.platform import idempotent
 
 public = APIRouter(prefix="/public", tags=["public online ordering"])
 router = APIRouter(tags=["online ordering"])
 IdemKey = Annotated[str | None, Header(alias="Idempotency-Key")]
+CustomerToken = Annotated[str | None, Header(alias="X-Customer-Token")]
 
 
 class PublicDeliveryIn(Strict):
@@ -95,14 +97,71 @@ def quote(code: str, body: CartIn, db: DbSession):
 
 @public.post("/branches/{code}/orders", status_code=201, dependencies=[Depends(limit("checkout", 20))],
              summary="Place an order (Idempotency-Key required). Returns the tracking link and, for online payment, the hosted payment page")
-def checkout(code: str, body: CheckoutIn, db: DbSession, idempotency_key: IdemKey = None):
+def checkout(code: str, body: CheckoutIn, db: DbSession, idempotency_key: IdemKey = None, x_customer_token: CustomerToken = None):
     branch, s = svc.public_branch(db, code)
-    return idempotent(db, f"online:{branch.id}", idempotency_key, body.model_dump(), lambda: svc.checkout(db, branch, s, _data(body)), 201)
+    data = _data(body)
+    c = customer_auth.current(db, x_customer_token, required=False)
+    if c is not None:
+        data["customer_id"] = c.id  # signed-in customers see the order in their history (FR-ONL-010)
+    return idempotent(db, f"online:{branch.id}", idempotency_key, body.model_dump(), lambda: svc.checkout(db, branch, s, data), 201)
+
+
+# ---------------------------------------------------------------- customer accounts (FR-ONL-004, FR-ONL-010)
+class CodeRequestIn(Strict):
+    phone: str = Field(min_length=6, max_length=20)
+
+
+class VerifyIn(Strict):
+    phone: str = Field(min_length=6, max_length=20)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    name: str | None = Field(None, max_length=120, description="Needed the first time, to create the account")
+
+
+@public.post("/branches/{code}/account/code", dependencies=[Depends(limit("auth", 10))], summary="Text a 6-digit sign-in code to the phone")
+def request_code(code: str, body: CodeRequestIn, db: DbSession):
+    branch, _ = svc.public_branch(db, code)
+    return customer_auth.request_code(db, branch, body.phone)
+
+
+@public.post("/branches/{code}/account/verify", dependencies=[Depends(limit("auth", 20))], summary="Exchange the code for a customer token (send it as X-Customer-Token)")
+def verify(code: str, body: VerifyIn, db: DbSession):
+    branch, _ = svc.public_branch(db, code)
+    return customer_auth.verify(db, branch, body.phone, body.code, body.name)
+
+
+@public.get("/account", dependencies=[Depends(limit("track", 120))])
+def account(db: DbSession, x_customer_token: CustomerToken = None):
+    c = customer_auth.current(db, x_customer_token)
+    from app.services.front import national
+
+    return {"name": c.name, "phone": national(c.phone_e164), "email": c.email, "loyalty_points": c.loyalty_points}
+
+
+@public.get("/account/orders", dependencies=[Depends(limit("track", 120))], summary="My orders only (FR-ONL-010)")
+def account_orders(db: DbSession, x_customer_token: CustomerToken = None):
+    return customer_auth.my_orders(db, customer_auth.current(db, x_customer_token))
+
+
+@public.post("/account/sign-out", status_code=204)
+def sign_out(db: DbSession, x_customer_token: CustomerToken = None):
+    if x_customer_token:
+        customer_auth.sign_out(db, x_customer_token)
 
 
 @public.get("/track/{token}", dependencies=[Depends(limit("track", 120))], summary="Order status by signed, expiring link (FR-ONL-009)")
 def track(token: str, db: DbSession):
     return svc.track(db, token)
+
+
+@public.get("/track/{token}/payment", dependencies=[Depends(limit("track", 120))],
+            summary="KHQR payment status; checks Bakong (at most every 3 seconds per order). Poll until paid, failed or expired")
+def payment_status(token: str, db: DbSession):
+    return svc.payment_status(db, token)
+
+
+@public.post("/track/{token}/payment", dependencies=[Depends(limit("checkout", 20))], summary="Issue a new KHQR after the previous one expired or failed")
+def new_qr(token: str, db: DbSession):
+    return svc.new_qr(db, token)
 
 
 @public.post("/payments/{provider}/callback", dependencies=[Depends(limit("callback", 300))], summary="Signed server-to-server payment notification (FR-ONL-007)")

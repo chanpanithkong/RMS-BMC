@@ -5,14 +5,14 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 * **Done, tested**: implemented and covered by an automated test in `backend/tests`.
 * **Done**: implemented, no dedicated test yet.
 * **Partial**: some of the requirement is implemented (see README, 'Known gaps').
-* **Not started**: no backend code yet (mostly Phase 3 and Could-have items).
+* **Not started**: no backend code yet (items waiting on provider or business decisions, and Could-have items).
 
 | Status | Count |
 |---|---|
-| Done | 88 |
-| Done, tested | 138 |
-| Not started | 74 |
-| Partial | 32 |
+| Done | 90 |
+| Done, tested | 175 |
+| Not started | 37 |
+| Partial | 30 |
 | **Total** | **332** |
 
 | ID | Module | Priority | Requirement | Status | Acceptance test |
@@ -118,10 +118,10 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-CUST-005 | CUST | Should | The system shall show a customer’s order history, total visits, total spend and last visit to permitted roles. | Done, tested | AT-CUST-104 |
 | FR-CUST-006 | CUST | Should | The system shall record customer preferences (e.g., spice level, seating) and allergy notes and display them o… | Done | AT-CUST-105 |
 | FR-CUST-007 | CUST | Could | The system shall allow classifying customers (e.g., regular, VIP, corporate) for promotions and reporting. | Done | AT-CUST-106 |
-| FR-CUST-008 | CUST | Could | The system shall maintain loyalty point balances and transactions when the loyalty feature is enabled. | Not started | AT-CUST-107 |
+| FR-CUST-008 | CUST | Could | The system shall maintain loyalty point balances and transactions when the loyalty feature is enabled. | Done, tested | AT-CUST-107 |
 | FR-CUST-009 | CUST | Must | The system shall mask phone and email for roles without customer.contact.view permission. | Done, tested | AT-CUST-02 |
 | FR-CUST-010 | CUST | Should | The system shall anonymise a customer on approved request, retaining financial records linked to an anonymised… | Done, tested | AT-CUST-03 |
-| FR-CUST-011 | CUST | Could | The system shall maintain credit accounts for approved customers or companies with credit limit and balance wh… | Not started | AT-CUST-108 |
+| FR-CUST-011 | CUST | Could | The system shall maintain credit accounts for approved customers or companies with credit limit and balance wh… | Done, tested | AT-CUST-108 |
 | FR-RSV-001 | RSV | Must | The system shall allow creating reservations with date, time, party size, customer name and phone, special req… | Done, tested | AT-RSV-101 |
 | FR-RSV-002 | RSV | Must | The system shall show available tables and table combinations for the requested time and party size based on d… | Done, tested | AT-RSV-01 |
 | FR-RSV-003 | RSV | Must | The system shall prevent assigning a table to overlapping reservation windows using a database constraint. | Done, tested | AT-RSV-01 |
@@ -130,7 +130,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-RSV-006 | RSV | Should | The system shall mark reservations as No-show after the configured grace period when not seated, and track no-… | Done, tested | AT-RSV-02 |
 | FR-RSV-007 | RSV | Must | The system shall seat a reservation in one action, linking the reservation to the table and the new order. | Done, tested | AT-RSV-104 |
 | FR-RSV-008 | RSV | Should | The system shall maintain a waiting list with party name, size, phone, time added and quoted wait time, and es… | Done, tested | AT-RSV-03 |
-| FR-RSV-009 | RSV | Could | The system shall notify waiting-list parties and reservation customers by the configured channels when enabled… | Partial | AT-RSV-03 |
+| FR-RSV-009 | RSV | Could | The system shall notify waiting-list parties and reservation customers by the configured channels when enabled… | Done, tested | AT-RSV-03 |
 | FR-RSV-010 | RSV | Should | The system shall provide a reservation calendar and list view with search by date, name, phone and status. | Done | AT-RSV-105 |
 | FR-RSV-011 | RSV | Should | The system shall warn staff when a walk-in is seated at a table reserved within the next configurable interval… | Done, tested | AT-RSV-106 |
 | FR-BILL-001 | BILL | Must | The system shall generate one or more bills for an order, each listing items, modifiers, quantities, unit pric… | Done, tested | AT-BILL-101 |
@@ -149,7 +149,7 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-BILL-014 | BILL | Must | The system shall process full and partial refunds referencing the original payment, with reason, approval and … | Done, tested | AT-BILL-04 |
 | FR-BILL-015 | BILL | Must | The system shall void an unfinalised payment entered in error within the same cashier session only with superv… | Done | AT-BILL-108 |
 | FR-BILL-016 | BILL | Should | The system shall handle electronic payments via provider integration where available, recording Pending, Confi… | Not started | AT-BILL-03, AT-BILL-05 |
-| FR-BILL-017 | BILL | Could | The system shall transfer an unpaid bill to an approved credit account within its credit limit and record sett… | Not started | AT-BILL-109 |
+| FR-BILL-017 | BILL | Could | The system shall transfer an unpaid bill to an approved credit account within its credit limit and record sett… | Done, tested | AT-BILL-109 |
 | FR-BILL-018 | BILL | Should | The system shall provide a payment reconciliation view per business day comparing recorded electronic payments… | Not started | AT-BILL-110 |
 | FR-BILL-019 | BILL | Could | The system shall record tips separately from sales when tip recording is enabled. | Not started | AT-BILL-111 |
 | FR-BILL-020 | BILL | Should | The system shall issue credit notes for refunds where required by configuration (subject to V-02). | Not started | AT-BILL-112 |
@@ -219,16 +219,16 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-STAFF-013 | STAFF | Should | The system shall allow managers to force-close abandoned sessions, flagging them for later count. | Done | AT-STAFF-109 |
 | FR-STAFF-014 | STAFF | Should | The system shall record staff activity history (sessions, sales, voids, discounts, refunds) per employee for a… | Done | AT-STAFF-110 |
 | FR-DLV-001 | DLV | Must | The system shall create takeaway orders with pickup name or number and optional scheduled pickup time. | Done | AT-DLV-101 |
-| FR-DLV-002 | DLV | Could | The system shall create delivery orders with customer phone, address, landmark notes, map location (optional) … | Partial | AT-DLV-102 |
-| FR-DLV-003 | DLV | Could | The system shall calculate delivery fees from zone and order-value rules, add them as a separate charge with i… | Not started | AT-DLV-01 |
-| FR-DLV-004 | DLV | Could | The system shall assign delivery orders to riders and track statuses with timestamps. | Not started | AT-DLV-103 |
-| FR-DLV-005 | DLV | Could | The system shall allow riders to confirm delivery (status and optional photo or customer name) on a mobile bro… | Not started | AT-DLV-104 |
-| FR-DLV-006 | DLV | Should | The system shall show a takeaway ready board or notify customers when takeaway orders are ready. | Not started | AT-DLV-03 |
-| FR-DLV-007 | DLV | Could | The system shall record third-party platform orders with platform, platform order reference, commission and se… | Not started | AT-DLV-02 |
-| FR-DLV-008 | DLV | Could | The system shall import or receive third-party platform orders through integration adapters where available. | Not started | AT-DLV-105 |
-| FR-DLV-009 | DLV | Could | The system shall process delivery cancellations and failed deliveries with reason, applying refund and wastage… | Not started | AT-DLV-106 |
-| FR-DLV-010 | DLV | Could | The system shall reconcile platform settlements against recorded platform orders and commissions and list diff… | Not started | AT-DLV-02 |
-| FR-DLV-011 | DLV | Could | The system shall report delivery performance (orders, average preparation and delivery times, late deliveries,… | Not started | AT-DLV-107 |
+| FR-DLV-002 | DLV | Could | The system shall create delivery orders with customer phone, address, landmark notes, map location (optional) … | Done, tested | AT-DLV-102 |
+| FR-DLV-003 | DLV | Could | The system shall calculate delivery fees from zone and order-value rules, add them as a separate charge with i… | Done, tested | AT-DLV-01 |
+| FR-DLV-004 | DLV | Could | The system shall assign delivery orders to riders and track statuses with timestamps. | Done, tested | AT-DLV-103 |
+| FR-DLV-005 | DLV | Could | The system shall allow riders to confirm delivery (status and optional photo or customer name) on a mobile bro… | Partial | AT-DLV-104 |
+| FR-DLV-006 | DLV | Should | The system shall show a takeaway ready board or notify customers when takeaway orders are ready. | Done, tested | AT-DLV-03 |
+| FR-DLV-007 | DLV | Could | The system shall record third-party platform orders with platform, platform order reference, commission and se… | Done, tested | AT-DLV-02 |
+| FR-DLV-008 | DLV | Could | The system shall import or receive third-party platform orders through integration adapters where available. | Done, tested | AT-DLV-105 |
+| FR-DLV-009 | DLV | Could | The system shall process delivery cancellations and failed deliveries with reason, applying refund and wastage… | Done, tested | AT-DLV-106 |
+| FR-DLV-010 | DLV | Could | The system shall reconcile platform settlements against recorded platform orders and commissions and list diff… | Done, tested | AT-DLV-02 |
+| FR-DLV-011 | DLV | Could | The system shall report delivery performance (orders, average preparation and delivery times, late deliveries,… | Done, tested | AT-DLV-107 |
 | FR-PROMO-001 | PROMO | Must | The system shall support manual percentage and fixed-amount discounts at item level and order level with reaso… | Done, tested | AT-PROMO-101 |
 | FR-PROMO-002 | PROMO | Must | The system shall enforce per-role discount limits (maximum percentage, maximum amount per bill, maximum total … | Done, tested | AT-PROMO-102 |
 | FR-PROMO-003 | PROMO | Must | The system shall apply discounts before service charge and tax per BR-008 and allocate order-level discounts t… | Done, tested | AT-PROMO-103 |
@@ -239,13 +239,13 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-PROMO-008 | PROMO | Must | The system shall enforce combination rules (combinable flag, priority, maximum one order-level discount by def… | Done, tested | AT-PROMO-01 |
 | FR-PROMO-009 | PROMO | Must | The system shall record every discount and promotion application with order, bill, value, user, approver, reas… | Done, tested | AT-PROMO-106 |
 | FR-PROMO-010 | PROMO | Must | The system shall prevent the same promotion or manual discount from being applied twice to the same line or bi… | Done, tested | AT-PROMO-02 |
-| FR-PROMO-011 | PROMO | Could | The system shall support loyalty earning and redemption rules when loyalty is enabled (D-14). | Not started | AT-PROMO-107 |
+| FR-PROMO-011 | PROMO | Could | The system shall support loyalty earning and redemption rules when loyalty is enabled (D-14). | Done, tested | AT-PROMO-107 |
 | FR-PROMO-012 | PROMO | Should | The system shall support staff meal and complimentary (comp) discounts with dedicated reasons, limits and repo… | Partial | AT-PROMO-108 |
 | FR-RPT-001 | RPT | Must | The system shall produce a daily sales report (RPT-01) with gross sales, discounts, refunds, net sales, servic… | Done | AT-RPT-01 |
-| FR-RPT-002 | RPT | Must | The system shall produce monthly sales reports (RPT-02) summarising daily figures for a month. | Done | AT-RPT-101 |
+| FR-RPT-002 | RPT | Must | The system shall produce monthly sales reports (RPT-02) summarising daily figures for a month. | Done, tested | AT-RPT-101 |
 | FR-RPT-003 | RPT | Must | The system shall produce sales by menu category and by menu item reports (RPT-03, RPT-04) with quantity, gross… | Done | AT-RPT-04 |
 | FR-RPT-004 | RPT | Should | The system shall produce sales by employee (server and cashier) report (RPT-05). | Done, tested | AT-RPT-102 |
-| FR-RPT-005 | RPT | Could | The system shall produce sales by branch and branch comparison reports (RPT-06) when multi-branch is enabled. | Not started | AT-RPT-103 |
+| FR-RPT-005 | RPT | Could | The system shall produce sales by branch and branch comparison reports (RPT-06) when multi-branch is enabled. | Done, tested | AT-RPT-103 |
 | FR-RPT-006 | RPT | Must | The system shall produce a sales by payment method report (RPT-07) by currency with base equivalents, distingu… | Done, tested | AT-RPT-104 |
 | FR-RPT-007 | RPT | Should | The system shall produce order volume, average order value and peak-hour analysis reports (RPT-08, RPT-09) by … | Done, tested | AT-RPT-105 |
 | FR-RPT-008 | RPT | Could | The system shall produce a table turnover report (RPT-10) with covers, average dining time and turns per table… | Done, tested | AT-RPT-106 |
@@ -288,13 +288,13 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-NOTIF-004 | NOTIF | Must | The system shall notify approvers of pending discount, refund, void, adjustment, purchase-order and expense ap… | Done | AT-NOTIF-104 |
 | FR-NOTIF-005 | NOTIF | Must | The system shall notify inventory officers and kitchen managers of low-stock and expiring items daily and when… | Done | AT-NOTIF-01 |
 | FR-NOTIF-006 | NOTIF | Should | The system shall alert cashiers and managers of failed or pending electronic payments. | Not started | AT-NOTIF-105 |
-| FR-NOTIF-007 | NOTIF | Could | The system shall send reservation confirmations, reminders and waiting-list messages through configured channe… | Not started | AT-NOTIF-03 |
+| FR-NOTIF-007 | NOTIF | Could | The system shall send reservation confirmations, reminders and waiting-list messages through configured channe… | Done, tested | AT-NOTIF-03 |
 | FR-NOTIF-008 | NOTIF | Should | The system shall send emails (e.g., purchase orders, scheduled reports, password resets) through a configured … | Done | AT-NOTIF-106 |
 | FR-NOTIF-009 | NOTIF | Should | The system shall remind cashiers and managers of sessions still open after the scheduled shift end or day-end … | Not started | AT-NOTIF-107 |
 | FR-NOTIF-010 | NOTIF | Must | The system shall send system alerts for printer offline, KDS offline, synchronisation errors, backup failures … | Partial | AT-NOTIF-02 |
 | FR-NOTIF-011 | NOTIF | Could | The system shall allow users to configure which non-mandatory notifications they receive. | Not started | AT-NOTIF-108 |
 | FR-NOTIF-012 | NOTIF | Must | The system shall provide a notification centre with unread count, read/unread state and links to the related r… | Done | AT-NOTIF-109 |
-| FR-NOTIF-013 | NOTIF | Should | The system shall log external message deliveries with status and retry failed deliveries with exponential back… | Partial | AT-NOTIF-03 |
+| FR-NOTIF-013 | NOTIF | Should | The system shall log external message deliveries with status and retry failed deliveries with exponential back… | Done, tested | AT-NOTIF-03 |
 | FR-CFG-001 | CFG | Must | The system shall maintain the restaurant profile (legal name, trade name in Khmer and English, address, phone,… | Not started | AT-CFG-101 |
 | FR-CFG-002 | CFG | Must | The system shall allow enabling and disabling optional modules and features and applying a business-type profi… | Not started | AT-CFG-102 |
 | FR-CFG-003 | CFG | Must | The system shall maintain branch information (name, address, phone, opening hours, receipt header) for each br… | Done | AT-CFG-103 |
@@ -325,27 +325,27 @@ Generated from SRS Appendix A. Status reflects the backend only, as of this comm
 | FR-AUD-008 | AUD | Should | The system shall export audit search results to Excel or CSV for permitted users. | Done | AT-AUD-106 |
 | FR-AUD-009 | AUD | Must | The system shall retain audit entries for the retention period in Section 10.10 and archive older entries with… | Not started | AT-AUD-107 |
 | FR-AUD-010 | AUD | Should | The system shall verify the hash chain daily and alert administrators and the Owner on any break. | Done | AT-AUD-03 |
-| FR-BRN-001 | BRN | Could | The system shall allow registering branches with code, names, address, contact, opening hours, time zone and s… | Not started | AT-BRN-101 |
+| FR-BRN-001 | BRN | Could | The system shall allow registering branches with code, names, address, contact, opening hours, time zone and s… | Done, tested | AT-BRN-101 |
 | FR-BRN-002 | BRN | Must | The system shall scope all operational records by branch and apply branch filters in the data-access layer for… | Done, tested | AT-BRN-01 |
-| FR-BRN-003 | BRN | Could | The system shall support branch-specific menu assignment, availability and prices overriding restaurant-level … | Not started | AT-BRN-02 |
-| FR-BRN-004 | BRN | Could | The system shall maintain inventory balances and transactions per branch and location. | Not started | AT-BRN-102 |
-| FR-BRN-005 | BRN | Could | The system shall allow suppliers to be shared or restricted to specific branches. | Not started | AT-BRN-103 |
-| FR-BRN-006 | BRN | Could | The system shall support inter-branch stock transfers with dispatch, in-transit and receipt steps and variance… | Not started | AT-BRN-03 |
-| FR-BRN-007 | BRN | Could | The system shall assign users to branches and require a cross-branch permission for viewing other branches’ da… | Partial | AT-BRN-01 |
-| FR-BRN-008 | BRN | Could | The system shall produce consolidated reports across permitted branches with per-branch breakdown. | Not started | AT-BRN-104 |
-| FR-BRN-009 | BRN | Could | The system shall provide a branch comparison dashboard (net sales, orders, AOV, food cost %, labour hours if r… | Not started | AT-BRN-105 |
-| FR-BRN-010 | BRN | Could | The system shall allow branch-level overrides of operational settings (receipt header, printers, stations, ser… | Not started | AT-BRN-106 |
-| FR-ONL-001 | ONL | Could | The system shall publish a public menu per branch showing available items, images, descriptions, online prices… | Not started | AT-ONL-101 |
-| FR-ONL-002 | ONL | Could | The system shall provide a cart with item customisation enforcing modifier rules and quantity limits. | Not started | AT-ONL-102 |
-| FR-ONL-003 | ONL | Could | The system shall allow selecting pickup or delivery and an ASAP or scheduled time within opening hours and pre… | Not started | AT-ONL-103 |
-| FR-ONL-004 | ONL | Could | The system shall support guest checkout with name and phone and optional customer accounts with email or phone… | Not started | AT-ONL-104 |
-| FR-ONL-005 | ONL | Could | The system shall validate availability, prices, opening hours, minimum order and delivery zone in the backend … | Not started | AT-ONL-02 |
-| FR-ONL-006 | ONL | Could | The system shall apply promotion codes with server-side validation. | Not started | AT-ONL-105 |
-| FR-ONL-007 | ONL | Could | The system shall integrate with a payment gateway using hosted payment pages or tokens so that card data never… | Not started | AT-ONL-04 |
-| FR-ONL-008 | ONL | Could | The system shall show an order confirmation with order number and send it by the configured channel. | Not started | AT-ONL-106 |
-| FR-ONL-009 | ONL | Could | The system shall provide order status tracking (Received, Accepted, Preparing, Ready, Out for Delivery, Comple… | Not started | AT-ONL-01 |
-| FR-ONL-010 | ONL | Could | The system shall show order history to signed-in customers for their own orders only. | Not started | AT-ONL-01 |
-| FR-ONL-011 | ONL | Could | The system shall allow staff to accept or reject online orders (or auto-accept by configuration) and send acce… | Not started | AT-ONL-107 |
-| FR-ONL-012 | ONL | Could | The system shall protect public endpoints with rate limiting, input validation, bot protection when abuse is d… | Not started | AT-ONL-03 |
-| FR-ONL-013 | ONL | Could | The system shall support QR table ordering in which a table-specific QR code opens the menu and creates or add… | Not started | AT-ONL-108 |
-| FR-ONL-014 | ONL | Could | The system shall allow managers to pause and resume online ordering per branch. | Not started | AT-ONL-109 |
+| FR-BRN-003 | BRN | Could | The system shall support branch-specific menu assignment, availability and prices overriding restaurant-level … | Done, tested | AT-BRN-02 |
+| FR-BRN-004 | BRN | Could | The system shall maintain inventory balances and transactions per branch and location. | Done, tested | AT-BRN-102 |
+| FR-BRN-005 | BRN | Could | The system shall allow suppliers to be shared or restricted to specific branches. | Done, tested | AT-BRN-103 |
+| FR-BRN-006 | BRN | Could | The system shall support inter-branch stock transfers with dispatch, in-transit and receipt steps and variance… | Done, tested | AT-BRN-03 |
+| FR-BRN-007 | BRN | Could | The system shall assign users to branches and require a cross-branch permission for viewing other branches’ da… | Done, tested | AT-BRN-01 |
+| FR-BRN-008 | BRN | Could | The system shall produce consolidated reports across permitted branches with per-branch breakdown. | Done, tested | AT-BRN-104 |
+| FR-BRN-009 | BRN | Could | The system shall provide a branch comparison dashboard (net sales, orders, AOV, food cost %, labour hours if r… | Done, tested | AT-BRN-105 |
+| FR-BRN-010 | BRN | Could | The system shall allow branch-level overrides of operational settings (receipt header, printers, stations, ser… | Done | AT-BRN-106 |
+| FR-ONL-001 | ONL | Could | The system shall publish a public menu per branch showing available items, images, descriptions, online prices… | Done, tested | AT-ONL-101 |
+| FR-ONL-002 | ONL | Could | The system shall provide a cart with item customisation enforcing modifier rules and quantity limits. | Done, tested | AT-ONL-102 |
+| FR-ONL-003 | ONL | Could | The system shall allow selecting pickup or delivery and an ASAP or scheduled time within opening hours and pre… | Done, tested | AT-ONL-103 |
+| FR-ONL-004 | ONL | Could | The system shall support guest checkout with name and phone and optional customer accounts with email or phone… | Done, tested | AT-ONL-104 |
+| FR-ONL-005 | ONL | Could | The system shall validate availability, prices, opening hours, minimum order and delivery zone in the backend … | Done, tested | AT-ONL-02 |
+| FR-ONL-006 | ONL | Could | The system shall apply promotion codes with server-side validation. | Done | AT-ONL-105 |
+| FR-ONL-007 | ONL | Could | The system shall integrate with a payment gateway using hosted payment pages or tokens so that card data never… | Done | AT-ONL-04 |
+| FR-ONL-008 | ONL | Could | The system shall show an order confirmation with order number and send it by the configured channel. | Done, tested | AT-ONL-106 |
+| FR-ONL-009 | ONL | Could | The system shall provide order status tracking (Received, Accepted, Preparing, Ready, Out for Delivery, Comple… | Done, tested | AT-ONL-01 |
+| FR-ONL-010 | ONL | Could | The system shall show order history to signed-in customers for their own orders only. | Done, tested | AT-ONL-01 |
+| FR-ONL-011 | ONL | Could | The system shall allow staff to accept or reject online orders (or auto-accept by configuration) and send acce… | Done, tested | AT-ONL-107 |
+| FR-ONL-012 | ONL | Could | The system shall protect public endpoints with rate limiting, input validation, bot protection when abuse is d… | Partial | AT-ONL-03 |
+| FR-ONL-013 | ONL | Could | The system shall support QR table ordering in which a table-specific QR code opens the menu and creates or add… | Done, tested | AT-ONL-108 |
+| FR-ONL-014 | ONL | Could | The system shall allow managers to pause and resume online ordering per branch. | Done, tested | AT-ONL-109 |

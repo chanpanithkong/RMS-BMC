@@ -224,7 +224,8 @@ def platform_orders(ctx: DView, platform: str | None = None, settlement_status: 
         stmt = stmt.where(PlatformOrder.settlement_status == settlement_status)
     return [{"order_id": o.id, "order_no": o.order_no, "business_date": o.business_date, "status": o.order_status, "platform": p.platform, "platform_ref": p.platform_ref,
              "order_total": o.grand_total, "commission_rate": p.commission_rate, "commission_amount": p.commission_amount, "net_expected": o.grand_total - p.commission_amount,
-             "settlement_status": p.settlement_status} for p, o in ctx.db.execute(stmt.order_by(Order.created_at))]
+             "settlement_status": p.settlement_status, "acceptance": p.acceptance, "accept_mode": p.accept_mode, "external_state": p.external_state,
+             "platform_short_no": p.platform_short_no, "mismatch_note": p.mismatch_note} for p, o in ctx.db.execute(stmt.order_by(Order.created_at))]
 
 
 @router.post("/platform-settlements", status_code=201, summary="Record a payout statement and reconcile it (FR-DLV-010)")

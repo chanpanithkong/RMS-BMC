@@ -29,11 +29,12 @@ SYSTEM_PERMISSIONS = {"orders.view", "orders.view_all", "orders.create", "orders
 
 
 # ---------------------------------------------------------------- context and settings
-def system_ctx(db: Session, branch: Branch) -> Ctx:
+def system_ctx(db: Session, branch: Branch, permissions: set[str] | None = None) -> Ctx:
+    """Context for work done by the system (public orders, scheduled jobs) under the inactive service account."""
     from app.services.seed import SYSTEM_USERNAME, system_user
 
     user = db.scalar(select(User).where(User.username == SYSTEM_USERNAME)) or system_user(db)
-    return Ctx(db=db, user=user, session_id=uuid.UUID(int=0), branch=branch, permissions=set(SYSTEM_PERMISSIONS), roles={"SYSTEM"})
+    return Ctx(db=db, user=user, session_id=uuid.UUID(int=0), branch=branch, permissions=set(permissions or SYSTEM_PERMISSIONS), roles={"SYSTEM"})
 
 
 def public_branch(db: Session, code: str, feature: str = "online") -> tuple[Branch, dict]:
@@ -128,6 +129,12 @@ def _create(ctx: Ctx, data: dict, s: dict) -> Order:
     order = orders.create_order(ctx, {"order_type": "Delivery" if data["fulfilment"] == "Delivery" else "Takeaway", "channel": "Online",
                                       "customer_name": data["name"], "customer_phone": front.national(phone), "pickup_name": data["name"][:60],
                                       "scheduled_at": data.get("scheduled_at"), "note": data.get("note"), "delivery": delivery, "items": data["items"]})
+    from app.models import Customer
+
+    existing = ctx.db.get(Customer, data["customer_id"]) if data.get("customer_id") else ctx.db.scalar(
+        select(Customer).where(Customer.phone_e164 == phone, Customer.merged_into_id.is_(None), Customer.anonymised_at.is_(None)))
+    if existing is not None:
+        order.customer_id = existing.id  # FR-ONL / loyalty: known customers earn on online orders; unknown phones create no record (BR-045)
     if data.get("promo_code"):
         promotions.apply_code(ctx, order, data["promo_code"])  # BR-038, server-side (FR-ONL-006)
     calc = orders.calculation(ctx.db, order)
@@ -190,7 +197,9 @@ def checkout(db: Session, branch: Branch, s: dict, data: dict) -> dict:
     oo = OnlineOrder(order_id=order.id, branch_id=branch.id, source="Online", fulfilment=data["fulfilment"], customer_email=data.get("email"),
                      payment_mode=data["payment"], payment_status="Pending" if gateway else "NotRequired")
     out: dict = {}
-    if gateway:
+    if gateway and getattr(gateway, "kind", "redirect") == "qr":
+        out["payment"] = _issue_qr(gateway, branch, order, oo)
+    elif gateway:
         co = gateway.create_checkout(order.order_no, order.grand_total, order.currency)
         oo.gateway, oo.gateway_session = gateway.name, co.session_ref
         out["payment"] = {"gateway": gateway.name, "session_ref": co.session_ref, "redirect_url": co.redirect_url}
@@ -203,6 +212,9 @@ def checkout(db: Session, branch: Branch, s: dict, data: dict) -> dict:
     if s.get("auto_accept") and oo.payment_status == "NotRequired":
         _accept(ctx, oo, order)
     _confirm(db, branch, order, oo, token)
+    from app.services import sms
+
+    sms.order_update(db, order, "received", tracking_url(token))
     return {"order_id": order.id, "order_no": order.order_no, "status": tracking_status(db, order, oo), "tracking_token": token, "tracking_url": tracking_url(token),
             "totals": totals_out(order), **out}
 
@@ -215,10 +227,127 @@ def _confirm(db: Session, branch: Branch, order: Order, oo: OnlineOrder, token: 
                                     "currency": order.currency, "fulfilment": oo.fulfilment, "tracking_url": tracking_url(token)}))
 
 
-# ---------------------------------------------------------------- payment callback (FR-ONL-007)
-def payment_callback(db: Session, provider: str, body: bytes, signature: str | None) -> dict:
+# ---------------------------------------------------------------- KHQR payments (Bakong)
+def _issue_qr(gateway, branch: Branch, order: Order, oo: OnlineOrder) -> dict:
+    from app.integrations.bakong import KhqrError
+
+    try:
+        q = gateway.create_qr(f"{branch.code}{order.business_date:%y%m%d}-{order.order_no}", order.grand_total, order.currency, store_label=branch.name_en[:25])
+    except KhqrError as e:
+        raise BusinessRuleError("PAYMENT_CONFIG_INVALID", f"Online payment is misconfigured: {e}") from e
+    oo.gateway, oo.gateway_session, oo.gateway_payload, oo.gateway_expires_at, oo.gateway_checked_at = gateway.name, q["md5"], q["qr"], q["expires_at"], None
+    oo.payment_status = "Pending"
+    return {"gateway": gateway.name, "kind": "khqr", "qr": q["qr"], "md5": q["md5"], "expires_at": q["expires_at"], "amount": order.grand_total,
+            "currency": order.currency}
+
+
+def _record_payment(db: Session, ctx: Ctx, oo: OnlineOrder, order: Order, amount: Decimal, currency: str, method: str, reference: str) -> None:
+    """One payment per gateway session (BR-030); the amount and currency must equal the order total."""
     from app.services import billing
 
+    if amount != order.grand_total or currency != order.currency:
+        audit(db, ctx, "online.payment_mismatch", "Order", order.id, after={"expected": order.grand_total, "received": amount, "currency": currency})
+        notify_permission(db, oo.branch_id, "refunds.approve", "Payment", f"Check the online payment for order {order.order_no}",
+                          f"Received {amount} {currency}, expected {order.grand_total} {order.currency}.", f"/orders/{order.id}")
+        raise Conflict("PAYMENT_AMOUNT_MISMATCH", "The paid amount doesn't match the order total.")
+    bills = billing.active_bills(db, order.id) or billing.generate_bills(ctx, order, "single")
+    billing.create_payment(ctx, {"bill_id": bills[0].id, "method": method, "currency": order.currency, "reference": reference[:80],
+                                 "idempotency_key": f"gateway:{oo.gateway_session}"})
+    oo.payment_status, oo.gateway_txn = "Paid", reference[:80]
+    audit(db, ctx, "online.payment_confirmed", "Order", order.id, after={"gateway": oo.gateway, "txn": oo.gateway_txn, "amount": amount})
+    if get_setting(db, "online", oo.branch_id).get("auto_accept") and oo.status == "Received":
+        _accept(ctx, oo, order)
+
+
+def check_khqr(db: Session, oo: OnlineOrder, force: bool = False) -> str:
+    """Poll Bakong for a pending KHQR (NBC: the merchant back end polls check_transaction_by_md5 until the QR expires).
+    Returns paid | failed | expired | pending | unavailable. The receiving account, currency and amount are all checked."""
+    from app.integrations.bakong import BakongUnavailable
+
+    if oo.gateway != "bakong" or oo.payment_status != "Pending":
+        return oo.payment_status.lower()
+    now = utcnow()
+    if not force and oo.gateway_checked_at and (now - oo.gateway_checked_at).total_seconds() < 3:
+        return "pending"  # a customer page polling quickly doesn't hammer Bakong
+    gateway = get_gateway("bakong")
+    if gateway is None:
+        return "unavailable"
+    order = db.get(Order, oo.order_id, with_for_update=True)
+    ctx = system_ctx(db, db.get(Branch, oo.branch_id))
+    oo.gateway_checked_at = now
+    try:
+        result = gateway.check(oo.gateway_session)
+    except BakongUnavailable as e:
+        audit(db, ctx, "online.payment_check_unavailable", "Order", order.id, after={"reason": str(e)})
+        return "unavailable"
+    if result.status == "paid":
+        if not gateway.receiver_ok(result):
+            oo.payment_status = "Failed"
+            audit(db, ctx, "online.payment_wrong_receiver", "Order", order.id, after={"to": result.to_account, "hash": result.hash})
+            notify_permission(db, oo.branch_id, "refunds.approve", "Payment", f"Check the KHQR payment for order {order.order_no}",
+                              f"Bakong reports a payment to {result.to_account}, not this restaurant's account.", f"/orders/{order.id}")
+            return "failed"
+        try:
+            _record_payment(db, ctx, oo, order, result.amount, result.currency, "KHQR", result.hash or oo.gateway_session)
+        except Conflict:
+            oo.payment_status = "Failed"
+            return "failed"
+        return "paid"
+    if result.status == "failed":
+        oo.payment_status = "Failed"
+        audit(db, ctx, "online.payment_failed", "Order", order.id, after={"md5": oo.gateway_session})
+        return "failed"
+    if oo.gateway_expires_at and now >= oo.gateway_expires_at:
+        oo.payment_status = "Failed"
+        audit(db, ctx, "online.payment_expired", "Order", order.id, after={"md5": oo.gateway_session})
+        return "expired"
+    return "pending"
+
+
+def _by_token(db: Session, token: str) -> tuple[Order, OnlineOrder | None, TrackingToken]:
+    row = db.scalar(select(TrackingToken).where(TrackingToken.token_hash == hashlib.sha256(token.encode()).hexdigest()))
+    if row is None or row.expires_at < utcnow():
+        raise NotFound("Order")  # unknown and expired links look the same
+    return db.get(Order, row.order_id), db.scalar(select(OnlineOrder).where(OnlineOrder.order_id == row.order_id).with_for_update()), row
+
+
+def payment_status(db: Session, token: str) -> dict:
+    order, oo, _ = _by_token(db, token)
+    if oo is None or oo.payment_mode != "Online":
+        raise NotFound("Online payment")
+    state = check_khqr(db, oo)
+    return {"payment_status": oo.payment_status, "check": state, "expires_at": oo.gateway_expires_at,
+            "qr": oo.gateway_payload if oo.payment_status == "Pending" else None, "amount": order.grand_total, "currency": order.currency}
+
+
+def new_qr(db: Session, token: str) -> dict:
+    """A fresh KHQR after the previous one expired or failed, while the order is still waiting."""
+    order, oo, _ = _by_token(db, token)
+    if oo is None or oo.payment_mode != "Online" or oo.gateway != "bakong":
+        raise NotFound("Online payment")
+    if oo.payment_status == "Pending" and oo.gateway_expires_at and utcnow() < oo.gateway_expires_at:
+        raise Conflict("PAYMENT_STILL_OPEN", "The current QR code is still valid.")
+    if oo.payment_status == "Paid" or oo.status != "Received" or order.order_status in ("Cancelled", "Completed"):
+        raise Conflict("PAYMENT_NOT_NEEDED", "This order can't take a new payment.")
+    gateway = get_gateway("bakong")
+    if gateway is None:
+        raise BusinessRuleError("ONLINE_PAYMENT_UNAVAILABLE", "Online payment isn't available right now.")
+    out = _issue_qr(gateway, db.get(Branch, order.branch_id), order, oo)
+    audit(db, system_ctx(db, db.get(Branch, order.branch_id)), "online.payment_new_qr", "Order", order.id, after={"md5": oo.gateway_session})
+    return out
+
+
+def poll_pending(db: Session) -> dict:
+    """Worker: check every pending KHQR, including ones just past expiry so they're closed off."""
+    counts: dict = {}
+    for oo in db.scalars(select(OnlineOrder).where(OnlineOrder.gateway == "bakong", OnlineOrder.payment_status == "Pending").with_for_update(skip_locked=True)):
+        r = check_khqr(db, oo, force=True)
+        counts[r] = counts.get(r, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------- payment callback (FR-ONL-007)
+def payment_callback(db: Session, provider: str, body: bytes, signature: str | None) -> dict:
     gateway = get_gateway(provider)
     if gateway is None:
         raise NotFound("Payment provider")
@@ -236,17 +365,7 @@ def payment_callback(db: Session, provider: str, body: bytes, signature: str | N
         oo.payment_status = "Failed"
         audit(db, ctx, "online.payment_failed", "Order", order.id, after={"session": oo.gateway_session})
         return {"status": "failed_recorded"}
-    amount = Decimal(str(payload.get("amount")))
-    if amount != order.grand_total or payload.get("currency") != order.currency:
-        audit(db, ctx, "online.payment_mismatch", "Order", order.id, after={"expected": order.grand_total, "received": amount})
-        raise Conflict("PAYMENT_AMOUNT_MISMATCH", "The paid amount doesn't match the order total.")
-    bills = billing.active_bills(db, order.id) or billing.generate_bills(ctx, order, "single")
-    billing.create_payment(ctx, {"bill_id": bills[0].id, "method": "ONLINE", "currency": order.currency, "reference": str(payload.get("gateway_txn"))[:80],
-                                 "idempotency_key": f"gateway:{oo.gateway_session}"})
-    oo.payment_status, oo.gateway_txn = "Paid", str(payload.get("gateway_txn"))[:80]
-    audit(db, ctx, "online.payment_confirmed", "Order", order.id, after={"gateway": oo.gateway, "txn": oo.gateway_txn, "amount": amount})
-    if get_setting(db, "online", oo.branch_id).get("auto_accept") and oo.status == "Received":
-        _accept(ctx, oo, order)
+    _record_payment(db, ctx, oo, order, Decimal(str(payload.get("amount"))), payload.get("currency"), "ONLINE", str(payload.get("gateway_txn")))
     return {"status": "recorded"}
 
 
@@ -264,6 +383,9 @@ def _accept(ctx: Ctx, oo: OnlineOrder, order: Order) -> None:
     oo.status, oo.accepted_by, oo.accepted_at = "Accepted", ctx.user_id, utcnow()
     ctx.db.flush()
     orders.send(ctx, order)
+    from app.services import sms
+
+    sms.order_update(ctx.db, order, "accepted")
     audit(ctx.db, ctx, "online.order_accept", "Order", order.id, after={"auto": ctx.user.username == "online.system"})
 
 
@@ -290,6 +412,9 @@ def reject(ctx: Ctx, oo: OnlineOrder, reason: str) -> OnlineOrder:
     if oo.customer_email:
         ctx.db.add(OutboxEvent(branch_id=ctx.branch_id, event_type="email.online_order_rejected", topic="email",
                                payload={"email": oo.customer_email, "order_no": order.order_no, "branch": ctx.branch.name_en, "reason": reason}))
+    from app.services import sms
+
+    sms.order_update(ctx.db, order, "rejected", reason=reason)
     audit(ctx.db, ctx, "online.order_reject", "Order", order.id, reason=reason)
     return oo
 
@@ -331,11 +456,7 @@ def tracking_status(db: Session, order: Order, oo: OnlineOrder | None) -> str:
 
 
 def track(db: Session, token: str) -> dict:
-    row = db.scalar(select(TrackingToken).where(TrackingToken.token_hash == hashlib.sha256(token.encode()).hexdigest()))
-    if row is None or row.expires_at < utcnow():
-        raise NotFound("Order")  # unknown and expired links look the same
-    order = db.get(Order, row.order_id)
-    oo = db.scalar(select(OnlineOrder).where(OnlineOrder.order_id == order.id))
+    order, oo, row = _by_token(db, token)
     b = db.get(Branch, order.branch_id)
     return {"order_no": order.order_no, "status": tracking_status(db, order, oo), "fulfilment": oo.fulfilment if oo else None, "scheduled_at": order.scheduled_at,
             "branch": {"name_en": b.name_en, "name_km": b.name_km, "phone": b.phone},

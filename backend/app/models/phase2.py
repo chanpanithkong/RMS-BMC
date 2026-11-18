@@ -61,6 +61,7 @@ class Reservation(IdMixin, TimestampMixin, VersionMixin, Base):
     reserved_at: Mapped[datetime]
     duration_minutes: Mapped[int] = mapped_column(SmallInteger, default=90)
     party_size: Mapped[int] = mapped_column(SmallInteger)
+    reminder_sent_at: Mapped[datetime | None]  # FR-RSV-009 SMS reminder
     status: Mapped[str] = mapped_column(String(10), default="Confirmed")
     notes: Mapped[str | None] = mapped_column(Text)
     cancel_reason: Mapped[str | None] = mapped_column(Text)

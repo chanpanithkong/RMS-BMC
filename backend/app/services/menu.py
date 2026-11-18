@@ -94,6 +94,9 @@ def set_availability(ctx: Ctx, item: MenuItem, available: bool, until: datetime 
     db.flush()
     audit(db, ctx, "menu.availability", "MenuItem", item.id, before=before, after={"available": available, "unavailable_until": bmi.unavailable_until, "reason": reason})
     emit(db, f"branch:{ctx.branch_id}", "menu.availability", {"menu_item_id": str(item.id), "available": available, "until": bmi.unavailable_until})
+    from app.services import grabfood
+
+    grabfood.on_availability(ctx, item, available)
     return bmi
 
 

@@ -144,6 +144,9 @@ def out_for_delivery(ctx: Ctx, d: Delivery) -> Delivery:
         raise Conflict("ORDER_NOT_READY", "All items must be ready before the order leaves.")
     _move(ctx, d, "OutForDelivery")
     d.out_at = utcnow()
+    from app.services import sms
+
+    sms.order_update(ctx.db, order, "out_for_delivery")
     _event(ctx, d, order)
     return d
 

@@ -81,6 +81,12 @@ PERMISSIONS: dict[str, tuple[str, str]] = {
     "delivery.operate": ("DLV", "Rider: see and update own deliveries"),
     "delivery.fee_override": ("DLV", "Override the zone delivery fee"),
     "platform.reconcile": ("DLV", "Record and reconcile platform settlements"),
+    "accounting.export": ("RPT", "Export daily journals to the accounting system"),
+    "credit.view": ("CUST", "View customer credit accounts, balances and statements"),
+    "credit.manage": ("CUST", "Open credit accounts and set limits and terms (D-07)"),
+    "credit.charge": ("BILL", "Charge a bill to a customer credit account"),
+    "credit.settle": ("CUST", "Record payments against credit accounts"),
+    "credit.approve": ("CUST", "Approve credit charges over the limit or on overdue accounts"),
 }
 
 _VIEW_ALL = [p for p in PERMISSIONS if p.endswith(".view") or p in ("report.financial.view", "report.export", "audit.export", "orders.view_all")]
@@ -138,6 +144,15 @@ for _r, _p in {"GM": ["delivery.view", "delivery.manage", "delivery.fee_override
                "ACCT": ["delivery.view", "platform.reconcile"]}.items():
     PHASE2_GRANTS.setdefault(_r, []).extend(_p)
 ROLE_GRANTS["RIDER"] = ["delivery.operate"]
+PHASE2_GRANTS["OWNER"].append("accounting.export")
+# Credit accounts (owner's decisions for D-07): Owner, GM or Accountant open accounts and set limits; managers approve over-limit or overdue charges.
+for _r, _p in {"OWNER": ["credit.manage", "credit.charge", "credit.settle", "credit.approve"],
+               "GM": ["credit.view", "credit.manage", "credit.charge", "credit.settle", "credit.approve"],
+               "ACCT": ["credit.view", "credit.manage", "credit.settle"],
+               "BRMGR": ["credit.view", "credit.charge", "credit.settle", "credit.approve"],
+               "SUPV": ["credit.view", "credit.charge", "credit.settle"], "CASHIER": ["credit.view", "credit.charge", "credit.settle"]}.items():
+    PHASE2_GRANTS.setdefault(_r, []).extend(_p)
+PHASE2_GRANTS["ACCT"].append("accounting.export")
 for role, extra in PHASE2_GRANTS.items():
     ROLE_GRANTS[role].extend(extra)
 ROLE_GRANTS["AUDITOR"].extend(p for p in ("customers.view", "reservations.view", "recipes.view", "suppliers.view", "purchases.view", "expenses.view", "employees.view", "promotions.view")
@@ -170,6 +185,10 @@ for _role, _vals in {"BRMGR": {"po_amount": "500", "expense_amount": "300"}, "GM
                      "SUPV": {"expense_amount": "50"}, "PUROFF": {"expense_amount": "50"}, "ACCT": {"expense_amount": "100"}}.items():
     ROLE_LIMITS.setdefault(_role, {}).update({k: Decimal(v) for k, v in _vals.items()})
 
+# Managers approve over-limit or overdue credit charges without an amount cap (owner's decision); the token still binds the amount.
+for _role in ("OWNER", "GM", "BRMGR"):
+    ROLE_LIMITS.setdefault(_role, {})["credit_override"] = _INF
+
 # Which permission an approver needs for each approval action.
 APPROVAL_ACTIONS: dict[str, tuple[str, str]] = {
     "discount": ("discounts.approve", "discount_pct"),
@@ -178,4 +197,5 @@ APPROVAL_ACTIONS: dict[str, tuple[str, str]] = {
     "stock_adjustment": ("inventory.approve", "adjustment_value"),
     "cash_variance": ("cash.approve", "cash_variance"),
     "payment_void": ("payments.void", "void_amount"),
+    "credit_override": ("credit.approve", "credit_override"),
 }

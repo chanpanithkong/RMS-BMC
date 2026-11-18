@@ -169,7 +169,7 @@ class PermissionOut(ORM):
 
 
 class ApprovalIn(Strict):
-    action: Literal["discount", "void", "refund", "stock_adjustment", "cash_variance", "payment_void"]
+    action: Literal["discount", "void", "refund", "stock_adjustment", "cash_variance", "payment_void", "credit_override"]
     approver_username: str
     approver_secret: str = Field(description="Approver's password or PIN, entered on the requesting device")
     amount: Decimal | None = Field(None, ge=0)

@@ -118,3 +118,30 @@ def test_outbox_worker_delivers_password_reset(client, engine):
     assert process_outbox() == 1
     with engine.connect() as conn:
         assert conn.execute(text("select count(*) from outbox_events where processed_at is null")).scalar() == 0
+
+
+def test_rpt02_compares_with_previous_month(api, engine):
+    from datetime import date as _date
+
+    from sqlalchemy import text
+
+    from app.services.reports import shift_month
+
+    c, acct = api("cashier"), api("acct")
+    m = menu(c)
+    biz = _date.fromisoformat(acct.get("/auth/me").json()["business_date"])
+    paid_order(c, m)  # 9.50 today
+    o2 = c.post("/orders", {"order_type": "Takeaway", "pickup_name": "B", "items": [line(m, "MN-02", 2)]}, idem=True).json()
+    b2 = c.post(f"/orders/{o2['id']}/bills", {"mode": "single"}).json()[0]
+    c.post("/payments", {"bill_id": b2["id"], "method": "KHQR", "currency": "USD", "reference": "KQ-PREV"}, idem=True)
+    prev_day = shift_month(biz)
+    with engine.begin() as conn:  # that sale belongs to the same day last month
+        conn.execute(text("update bills set business_date = :d where id = :b"), {"d": prev_day, "b": b2["id"]})
+    r = acct.get(f"/reports/RPT-02?date_from={biz}&date_to={biz}").json()
+    s = r["summary"]
+    assert money(s["net_sales"]) == money("9.50") and money(s["previous_period"]["net_sales"]) == money("19.00")
+    assert s["previous_period"]["from"] == prev_day.isoformat() == s["previous_period"]["to"]
+    assert money(s["change"]["net_sales"]["amount"]) == money("-9.50") and money(s["change"]["net_sales"]["percent"]) == money("-50.00")
+    row = r["rows"][0]
+    assert row["business_date"] == biz.isoformat() and money(row["previous_month_net_sales"]) == money("19.00")
+    assert "completed_orders" in row and "average_order_value" in row
