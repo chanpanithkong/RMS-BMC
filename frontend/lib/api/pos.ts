@@ -289,7 +289,9 @@ const sync = { orders: true, tables: true, stations: [] as string[] }
 export function startLiveSync(branchId: string, opts: { stations?: string[]; permissions?: string[]; userId?: string } = {}) {
   let alive = true
   const perms = opts.permissions
-  sync.orders = !perms || perms.includes("orders.view")
+  // Kitchen screens show every station ticket; they use the branch's orders only when the user may see all of them
+  // (a bartender or waiter sees just their own orders, which would leave the kitchen display empty).
+  sync.orders = !perms || perms.includes(opts.stations ? "orders.view_all" : "orders.view")
   sync.tables = !perms || perms.includes("tables.view")
   sync.stations = opts.stations && (!perms || perms.includes("kitchen.view")) ? opts.stations : []
   const all = () =>
@@ -491,9 +493,15 @@ async function openBill(orderId: string) {
   return made[0]
 }
 
+/** Records the print (the table becomes Awaiting Payment) and prints the bill; split bills print one page each. */
 export async function printBill(orderId: string) {
-  const bill = await openBill(orderId)
-  await api("POST", `/bills/${bill.id}/print`)
+  const first = await openBill(orderId)
+  const bills = await api<Schemas["BillOut"][]>("GET", `/orders/${orderId}/bills`)
+  const open = bills.filter((b) => !b.receipt_no)
+  const targets = open.length ? open : [first]
+  for (const b of targets) await api("POST", `/bills/${b.id}/print`)
+  const { printBillDocuments } = await import("@/lib/rms/print")
+  await printBillDocuments(targets.map((b) => b.id))
   void loadTables().catch(() => undefined)
   return refreshOrder(orderId)
 }

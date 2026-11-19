@@ -128,6 +128,18 @@ python -m scripts.seed --demo --admin-username admin --admin-password "<a passwo
 * `alembic upgrade head` only adds schema. Migrations are named `YYYYMMDD_hhmm_<slug>`; create new ones with `python -m alembic revision --autogenerate -m "..."` and review them before applying.
 * The seed is idempotent. Run it again after upgrading so new permissions and role grants reach an existing database. `--demo` adds the demo menu, tables and ingredients that mirror the frontend screens. The administrator gets the `SYSADMIN` and `OWNER` roles; there is no default password.
 
+### First setup of a real restaurant
+
+Leave out `--demo` and give your restaurant and first branch (the seed otherwise uses the placeholders "RMS Demo Restaurant" and branch "Riverside", code `RVS`):
+
+```bash
+python -m scripts.seed --admin-username admin --admin-password "<10+ characters>"   --restaurant-name "Sok Kitchen" --restaurant-name-km "ផ្ទះបាយសុខ" --legal-name "Sok Kitchen Co., Ltd." --tax-id "<tax ID>"   --branch-code PP1 --branch-name "Phnom Penh BKK1" --branch-address "..." --branch-phone "012 345 678" --timezone Asia/Phnom_Penh
+```
+
+* Only the options you pass change; you can run the command again later. The restaurant details can also be edited in the app under Settings → Restaurant (permission `branches.manage`: owner and system administrator).
+* The branch code (used in document numbers such as `R-PP1-000001`) and time zone can change only before the branch's first order.
+* Then, in the app: enter the real tax and service-charge rates (Settings → Tax & service charge) and today's USD/KHR rate (Settings → Currency & rounding); the seeded values are examples. Create staff accounts under User Management and register shared terminals under Branches → Devices.
+
 ## Run locally
 
 ```bash

@@ -1,9 +1,11 @@
 import type { Metadata } from "next"
 import { Geist, Geist_Mono, Noto_Sans_Khmer } from "next/font/google"
+import Script from "next/script"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
 import { ThemeProvider } from "@/components/theme-provider"
 import { DialogHost } from "@/components/rms/dialog-host"
+import { APPEARANCE_BOOT } from "@/lib/rms/appearance"
 import { cn } from "@/lib/utils"
 import "./globals.css"
 
@@ -39,6 +41,10 @@ export default function RootLayout({
       }
     >
       <body className="font-sans">
+        {/* Saved accent colour and text size, applied before the first paint */}
+        <Script id="rms-appearance" strategy="beforeInteractive">
+          {APPEARANCE_BOOT}
+        </Script>
         <TooltipProvider>
           <ThemeProvider>
             {children}

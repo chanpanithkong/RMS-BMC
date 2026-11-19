@@ -16,6 +16,7 @@ import { act, apiMessage, num, save, useApi, when } from "@/lib/api/use-api"
 import { cn } from "@/lib/utils"
 
 const groups = [
+  { id: "restaurant", label: "Restaurant" },
   { id: "branch", label: "Branch details" },
   { id: "features", label: "Features" },
   { id: "currency", label: "Currency & rounding" },
@@ -53,7 +54,7 @@ interface TaxProfile {
 
 export default function SettingsPage() {
   const { me } = useSession()
-  const [tab, setTab] = useTab("branch")
+  const [tab, setTab] = useTab("restaurant")
   return (
     <Page>
       <PageHeader title="Settings" description="Restaurant and branch configuration. Every change is recorded with its before and after values." />
@@ -72,6 +73,7 @@ export default function SettingsPage() {
         </nav>
         <div className="grid min-w-0 gap-4">
           {!can(me, "settings.manage") && <Notice tone="info">You can view settings. Changing them needs the settings permission.</Notice>}
+          {tab === "restaurant" && <RestaurantProfile />}
           {tab === "branch" && <BranchDetails />}
           {tab === "features" && (
             <>
@@ -186,6 +188,86 @@ export default function SettingsPage() {
         </div>
       </div>
     </Page>
+  )
+}
+
+interface Restaurant {
+  id: string
+  name_en: string
+  name_km: string | null
+  legal_name: string
+  tax_id: string | null
+  address: string | null
+  phone: string | null
+  base_currency: string
+}
+
+/** Restaurant-wide details printed on bills and receipts. Placeholders from the first setup are flagged until replaced. */
+function RestaurantProfile() {
+  const { me } = useSession()
+  const r = useApi(() => api<Restaurant>("GET", "/restaurant"), [], null)
+  const [open, setOpen] = React.useState(false)
+  const d = r.data
+  if (!d) return <Panel title="Restaurant">{r.loading ? "Loading…" : "Not available."}</Panel>
+  const placeholder = d.name_en === "RMS Demo Restaurant" || d.legal_name.startsWith("RMS Demo Restaurant")
+  return (
+    <Panel
+      title="Restaurant"
+      description="Shown at the top of every bill and receipt, for all branches."
+      actions={
+        can(me, "branches.manage") && (
+          <Button variant="outline" onClick={() => setOpen(true)}>
+            Edit
+          </Button>
+        )
+      }
+    >
+      {placeholder && (
+        <Notice tone="warning" className="mb-3">
+          These are the placeholder details from the first setup. Enter your restaurant&apos;s name, legal name and tax ID before printing bills for customers.
+        </Notice>
+      )}
+      <KV
+        items={[
+          ["Name", d.name_en],
+          ["Khmer name", d.name_km ?? "—"],
+          ["Legal name", d.legal_name],
+          ["Tax ID", d.tax_id ?? "Not set (not printed)"],
+          ["Address", d.address ?? "—"],
+          ["Phone", d.phone ?? "—"],
+          ["Base currency", d.base_currency],
+        ]}
+      />
+      <RecordDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Edit restaurant"
+        description="Changes apply to bills and receipts printed from now on. The change is recorded in the audit trail."
+        fields={[
+          { name: "name", label: "Name (English)", required: true, half: true },
+          { name: "km", label: "Name (Khmer)", half: true },
+          { name: "legal", label: "Legal name", required: true },
+          { name: "tax", label: "Tax ID", half: true, hint: "Leave empty if not registered" },
+          { name: "phone", label: "Phone", type: "tel", half: true },
+          { name: "address", label: "Registered address", type: "textarea" },
+        ]}
+        initial={{ name: d.name_en, km: d.name_km ?? "", legal: d.legal_name, tax: d.tax_id ?? "", phone: d.phone ?? "", address: d.address ?? "" }}
+        onSubmit={(v) =>
+          save(() =>
+            api("PATCH", "/restaurant", {
+              body: {
+                name_en: String(v.name),
+                name_km: String(v.km ?? ""),
+                legal_name: String(v.legal),
+                tax_id: String(v.tax ?? ""),
+                phone: String(v.phone ?? ""),
+                address: String(v.address ?? ""),
+              },
+            })
+          ).then(r.reload)
+        }
+      />
+    </Panel>
   )
 }
 

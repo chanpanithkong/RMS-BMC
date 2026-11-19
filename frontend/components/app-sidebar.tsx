@@ -18,11 +18,15 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { navForPath, navGroups, roleLabels } from "@/lib/rms/nav"
+import { useSession } from "@/lib/api/session"
 import { useRms } from "@/lib/rms/store"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { role, roles, lang, notices, branch } = useRms()
+  const { me } = useSession()
+  // Trading name from the restaurant profile (Settings → Restaurant)
+  const names = (me?.restaurant ?? {}) as { name_en?: string; name_km?: string | null }
   const active = navForPath(pathname)?.key
   const unread = notices.filter((n) => !n.read).length
 
@@ -40,7 +44,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <UtensilsCrossed className="size-4" />
               </div>
               <div className="flex flex-col gap-0.5 leading-none">
-                <span className="font-semibold">RMS Demo Restaurant</span>
+                <span className="font-semibold">{(lang === "km" && names.name_km) || names.name_en || "Restaurant Management System"}</span>
                 <span className="text-xs text-muted-foreground">
                   {branch} branch
                 </span>

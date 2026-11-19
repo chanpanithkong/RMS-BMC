@@ -68,6 +68,7 @@ export default function InventoryPage() {
   const unitById = Object.fromEntries(data.units.map((u) => [u.id, u]))
   const ingById = Object.fromEntries(data.ingredients.map((i) => [i.id, i]))
   const locById = Object.fromEntries(data.locations.map((l) => [l.id, l.name]))
+  const locationId = (name: unknown) => data.locations.find((l) => l.name === name)?.id ?? null // "Not set (first location by name)" → null
   const balanceRows = data.balances.map((b) => ({
     ...b,
     id: `${b.location_id}:${b.ingredient_id}`,
@@ -211,12 +212,21 @@ export default function InventoryPage() {
             reorder: num(i.reorder_level),
             reorderQty: num(i.reorder_qty),
             tracking: i.track_batch || i.track_expiry ? "Batch & expiry" : "Quantity",
+            usedFrom: i.default_location_id ? (locById[i.default_location_id] ?? "Other branch") : "",
           }))}
           onSave={(v, e) =>
             save(() =>
               inv.saveIngredient(
                 e
-                  ? { name_en: v.name, name_km: v.km || null, category: v.category, reorder_level: String(v.reorder || 0), reorder_qty: String(v.reorderQty || 0) }
+                  ? {
+                      name_en: v.name,
+                      name_km: v.km || null,
+                      category: v.category,
+                      reorder_level: String(v.reorder || 0),
+                      reorder_qty: String(v.reorderQty || 0),
+                      // A default at another branch isn't listed here; keep it unless a location is chosen
+                      ...(e.usedFrom === "Other branch" && !locationId(v.location) ? {} : { default_location_id: locationId(v.location) }),
+                    }
                   : {
                       code: v.code,
                       name_en: v.name,
@@ -227,6 +237,7 @@ export default function InventoryPage() {
                       reorder_qty: String(v.reorderQty || 0),
                       track_batch: Boolean(v.batch),
                       track_expiry: Boolean(v.batch),
+                      default_location_id: locationId(v.location),
                     },
                 e?.id
               )
@@ -242,6 +253,7 @@ export default function InventoryPage() {
             { key: "reorder", header: "Reorder level", align: "right" },
             { key: "reorderQty", header: "Reorder qty", align: "right" },
             { key: "tracking", header: "Tracking" },
+            { key: "usedFrom", header: "Used from", render: (i) => i.usedFrom || <span className="text-muted-foreground">Not set</span> },
           ]}
           fields={[
             { name: "name", label: "English name", required: true, half: true },
@@ -252,6 +264,13 @@ export default function InventoryPage() {
             { name: "reorder", label: "Reorder level", type: "number", min: 0, required: true, half: true },
             { name: "reorderQty", label: "Reorder quantity", type: "number", min: 0, required: true, half: true },
             { name: "batch", label: "Track batches and expiry", type: "switch", half: true },
+            {
+              name: "location",
+              label: "Sales use stock from",
+              type: "select",
+              options: ["Not set (first location by name)", ...data.locations.filter((l) => l.is_active).map((l) => l.name)],
+              hint: "When an item is sent to the kitchen, its recipe takes this ingredient from here.",
+            },
           ]}
           toForm={(i) => ({
             name: i.name_en,
@@ -262,6 +281,7 @@ export default function InventoryPage() {
             reorder: String(i.reorder),
             reorderQty: String(i.reorderQty),
             batch: i.track_batch,
+            location: i.usedFrom && i.usedFrom !== "Other branch" ? i.usedFrom : "Not set (first location by name)",
           })}
         />
       )}

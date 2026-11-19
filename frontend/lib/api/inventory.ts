@@ -25,6 +25,8 @@ export interface Ingredient {
   track_batch: boolean
   track_expiry: boolean
   is_active: boolean
+  /** Where sales take this ingredient from; null = the branch's first location by name. */
+  default_location_id: string | null
 }
 export interface Balance {
   location_id: string

@@ -71,6 +71,7 @@ class MeOut(BaseModel):
     current_branch: BranchOut
     business_date: str
     must_change_password: bool
+    restaurant: dict = Field(default_factory=dict, description="Trading names shown in the app header: {name_en, name_km}")
 
 
 class UserOut(ORM):

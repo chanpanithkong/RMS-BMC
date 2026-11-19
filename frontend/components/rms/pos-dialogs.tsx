@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Check, Mail, Printer, QrCode, Receipt } from "lucide-react"
+import { Check, Printer, Receipt } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -37,6 +37,9 @@ import {
 import { modifierGroups, useRms } from "@/lib/rms/store"
 import { loadBills, pay, report, splitBills } from "@/lib/api/pos"
 import { ApiError } from "@/lib/api/client"
+import { useSession } from "@/lib/api/session"
+import { apiMessage } from "@/lib/api/use-api"
+import { printOrderReceipts } from "@/lib/rms/print"
 import type {
   ComboPick,
   Discount,
@@ -599,6 +602,19 @@ export function PaymentDialog({
   const [splitIdx, setSplitIdx] = React.useState(0)
   const [lastChange, setLastChange] = React.useState<string>()
   const [reprints, setReprints] = React.useState(0)
+  const [printing, setPrinting] = React.useState(false)
+  const { me } = useSession()
+  const printReceipts = async (copy: boolean) => {
+    setPrinting(true)
+    try {
+      await printOrderReceipts(orderId, copy)
+      if (copy) setReprints((n) => n + 1)
+    } catch (e) {
+      toast.error(apiMessage(e))
+    } finally {
+      setPrinting(false)
+    }
+  }
   // Bills (and any split) live on the server; load them whenever the dialog opens.
   React.useEffect(() => {
     if (open) loadBills(orderId).catch(() => undefined)
@@ -671,9 +687,8 @@ export function PaymentDialog({
         {fullyPaid ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border p-4 font-mono text-xs">
-              <p className="text-center font-semibold">RMS DEMO RESTAURANT</p>
-              <p className="mb-2 text-center">
-                Riverside · {order.receiptNo}
+              <p className="mb-2 text-center font-semibold">
+                {me?.current_branch.name_en} · {order.receiptNo}
                 {reprints > 0 && (
                   <span className="font-bold"> · COPY {reprints}</span>
                 )}
@@ -720,41 +735,13 @@ export function PaymentDialog({
                   )}
                 </div>
               </div>
-              <Button
-                className="h-11"
-                onClick={() => toast.success("Receipt sent to printer")}
-              >
+              <Button className="h-11" disabled={printing} onClick={() => void printReceipts(false)}>
                 <Printer />
                 Print receipt
               </Button>
-              <Button
-                className="h-11"
-                variant="outline"
-                onClick={() => {
-                  setReprints(reprints + 1)
-                  toast.success("Reprint queued, marked COPY")
-                }}
-              >
+              <Button className="h-11" variant="outline" disabled={printing} onClick={() => void printReceipts(true)}>
                 <Receipt />
                 Reprint (COPY)
-              </Button>
-              <Button
-                className="h-11"
-                variant="outline"
-                onClick={() => toast.success("Receipt emailed")}
-              >
-                <Mail />
-                Email
-              </Button>
-              <Button
-                className="h-11"
-                variant="outline"
-                onClick={() =>
-                  toast.info("QR link displayed on customer screen")
-                }
-              >
-                <QrCode />
-                Show QR link
               </Button>
               <Button
                 className="mt-auto h-11"

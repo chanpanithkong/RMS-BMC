@@ -109,7 +109,8 @@ def seed_reference(db: Session) -> dict:
     restaurant = db.scalar(select(Restaurant)) or Restaurant(legal_name="RMS Demo Restaurant Co., Ltd.", name_en="RMS Demo Restaurant", name_km="ភោជនីយដ្ឋានសាកល្បង")
     db.add(restaurant)
     db.flush()
-    branch = _get_or_create(db, Branch, {"restaurant_id": restaurant.id, "code": "RVS"}, name_en="Riverside", name_km="មាត់ទន្លេ", timezone="Asia/Phnom_Penh", day_end_time=time(4, 0))
+    # The first branch is created once (placeholder "Riverside"/RVS until set up); later runs reuse it even after a rename.
+    branch = db.scalar(select(Branch).where(Branch.restaurant_id == restaurant.id).order_by(Branch.created_at, Branch.code).limit(1))         or _get_or_create(db, Branch, {"restaurant_id": restaurant.id, "code": "RVS"}, name_en="Riverside", name_km="មាត់ទន្លេ", timezone="Asia/Phnom_Penh", day_end_time=time(4, 0))
     from app.services.branches import setup_branch_basics
 
     setup_branch_basics(db, branch)
@@ -196,3 +197,55 @@ def seed_demo(db: Session, ref: dict) -> None:
                                                ("ING-004", "Coconut cream", "ខ្ទិះដូង", "Dairy & cream", litre, "6", "24"), ("ING-011", "Pork shoulder", "សាច់ជ្រូក", "Meat", kg, "8", "20")]:
         _get_or_create(db, Ingredient, {"code": code}, name_en=en, name_km=km, category=cat, stock_uom_id=uom.id, reorder_level=Decimal(level), reorder_qty=Decimal(qty))
     db.flush()
+    # Demo ingredients are used from the dry store, so sales don't fall back to the first location by name
+    dry = db.scalar(select(InventoryLocation).where(InventoryLocation.branch_id == branch.id, InventoryLocation.name == "Dry store"))
+    if dry is not None:
+        for ing in db.scalars(select(Ingredient).where(Ingredient.default_location_id.is_(None), Ingredient.code.in_(("ING-001", "ING-002", "ING-004", "ING-011")))):
+            ing.default_location_id = dry.id
+    db.flush()
+
+
+def apply_identity(db: Session, ref: dict, restaurant: dict, branch: dict) -> list[str]:
+    """First-setup details from the seed command: restaurant names, legal name and tax ID, and the first branch.
+    Only the values given are changed. The branch code and time zone can only change before the branch has any orders,
+    because document numbers (e.g. R-RVS-000001) and business dates depend on them."""
+    import re
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    from app.models import Order
+
+    out = []
+    r, b = ref["restaurant"], ref["branch"]
+    for k, v in restaurant.items():
+        if v is not None and getattr(r, k) != v:
+            setattr(r, k, v)
+            out.append(f"Restaurant {k.replace('_', ' ')} set.")
+    if branch.get("code") and branch["code"] != b.code:
+        code = branch["code"].upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,10}", code):
+            raise ValueError("The branch code must be 2-10 letters or digits.")
+        if db.scalar(select(Order.id).where(Order.branch_id == b.id).limit(1)):
+            raise ValueError(f"Branch {b.code} already has orders, so its code can't change.")
+        if db.scalar(select(Branch.id).where(Branch.code == code, Branch.id != b.id)):
+            raise ValueError(f"Another branch already uses code {code}.")
+        b.code = code
+        out.append(f"Branch code set to {code}.")
+    if branch.get("timezone") and branch["timezone"] != b.timezone:
+        try:
+            ZoneInfo(branch["timezone"])
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"Unknown time zone {branch['timezone']}.")
+        if db.scalar(select(Order.id).where(Order.branch_id == b.id).limit(1)):
+            raise ValueError(f"Branch {b.code} already has orders, so its time zone can't change.")
+        b.timezone = branch["timezone"]
+        out.append(f"Branch time zone set to {b.timezone}.")
+    for k in ("name_en", "name_km", "address", "phone"):
+        if branch.get(k) is not None and getattr(b, k) != branch[k]:
+            setattr(b, k, branch[k])
+            out.append(f"Branch {k.replace('_', ' ')} set.")
+    db.flush()
+    if out:
+        from app.services.platform import audit
+
+        audit(db, None, "setup.identity", "Restaurant", r.id, after={"restaurant": restaurant, "branch": branch}, branch_id=b.id)
+    return out

@@ -64,7 +64,15 @@ def me(ctx: CurrentCtx):
     u = ctx.user
     return {"id": u.id, "username": u.username, "full_name": u.full_name, "email": u.email, "preferred_language": u.preferred_language, "roles": u.roles,
             "permissions": sorted(ctx.permissions), "limits": {k: str(v) for k, v in ctx._limits.items()}, "branches": [b for b in u.branches if b.is_active],
-            "current_branch": ctx.branch, "business_date": ctx.business_date().isoformat(), "must_change_password": u.must_change_password}
+            "current_branch": ctx.branch, "business_date": ctx.business_date().isoformat(), "must_change_password": u.must_change_password,
+            "restaurant": _restaurant_names(ctx)}
+
+
+def _restaurant_names(ctx) -> dict:
+    from app.models import Restaurant
+
+    r = ctx.db.get(Restaurant, ctx.branch.restaurant_id)
+    return {"name_en": r.name_en, "name_km": r.name_km} if r else {}
 
 
 @router.post("/password/change", response_model=Message)

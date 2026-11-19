@@ -47,7 +47,8 @@ function ThemeHotkey() {
         return
       }
 
-      if (event.key.toLowerCase() !== "d") {
+      // Autofill and some IMEs fire keydown events without a key
+      if (typeof event.key !== "string" || event.key.toLowerCase() !== "d") {
         return
       }
 

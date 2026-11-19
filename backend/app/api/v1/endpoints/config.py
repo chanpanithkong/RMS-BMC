@@ -12,7 +12,8 @@ from sqlalchemy.dialects.postgresql import Range
 from app.core.dependencies import Ctx, require
 from app.core.exceptions import BusinessRuleError, Conflict, Forbidden, NotFound
 from app.core.security import new_opaque_token, token_digest
-from app.models import Branch, CashierSession, Device, ExchangeRate, KitchenStation, Order, Payment, PaymentMethod, ReasonCode, Setting, TaxProfile, TaxProfileRate
+from app.models import (Branch, CashierSession, Device, ExchangeRate, KitchenStation, Order, Payment, PaymentMethod, ReasonCode, Restaurant, Setting, TaxProfile,
+                        TaxProfileRate)
 from app.schemas.common import ORM, Strict
 from app.services.platform import DEFAULT_SETTINGS, audit, get_setting
 from app.utils.timeutil import utcnow
@@ -208,6 +209,39 @@ class BranchPatch(Strict):
     phone: str | None = None
     opening_hours: str | None = None
     day_end_time: time | None = None
+
+
+class RestaurantPatch(Strict):
+    name_en: str | None = Field(None, min_length=1, max_length=150)
+    name_km: str | None = Field(None, max_length=150)
+    legal_name: str | None = Field(None, min_length=1, max_length=200)
+    tax_id: str | None = Field(None, max_length=50, description="Printed on bills and receipts when set")
+    address: str | None = Field(None, max_length=500)
+    phone: str | None = Field(None, max_length=20)
+
+
+def _restaurant_out(r: Restaurant) -> dict:
+    return {k: getattr(r, k) for k in ("id", "name_en", "name_km", "legal_name", "tax_id", "address", "phone", "base_currency")}
+
+
+@router.get("/restaurant", summary="The restaurant's names, legal name and tax ID (shown on bills and receipts)")
+def restaurant(ctx: View):
+    return _restaurant_out(ctx.db.get(Restaurant, ctx.branch.restaurant_id))
+
+
+@router.patch("/restaurant", summary="Edit the restaurant profile; audited")
+def patch_restaurant(body: RestaurantPatch, ctx: Annotated[Ctx, Depends(require("branches.manage"))]):
+    r = ctx.db.get(Restaurant, ctx.branch.restaurant_id)
+    data = body.model_dump(exclude_unset=True)
+    for k in ("name_en", "legal_name"):
+        if k in data and not (data[k] or "").strip():
+            raise BusinessRuleError("VALIDATION_ERROR", "The restaurant name and legal name can't be empty.", details=[{"field": k, "issue": "required"}])
+    data = {k: (v.strip() or None) if isinstance(v, str) else v for k, v in data.items()}
+    before = {k: getattr(r, k) for k in data}
+    for k, v in data.items():
+        setattr(r, k, v)
+    audit(ctx.db, ctx, "restaurant.update", "Restaurant", r.id, before=before, after=data)
+    return _restaurant_out(r)
 
 
 class DeviceIn(Strict):

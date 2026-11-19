@@ -168,3 +168,128 @@
     display: none !important;
   }
 }
+
+/* Accent colours and text size (lib/rms/appearance.ts). Terracotta is the default brand colour above. */
+html[data-accent="teal"] {
+    --primary: oklch(0.52 0.09 185);
+    --primary-foreground: oklch(0.985 0.005 185);
+    --ring: oklch(0.62 0.076 185);
+    --accent: oklch(0.95 0.025 185);
+    --accent-foreground: oklch(0.3 0.07 185);
+    --sidebar-primary: oklch(0.52 0.09 185);
+    --sidebar-primary-foreground: oklch(0.985 0.005 185);
+    --sidebar-accent: oklch(0.93 0.03 185);
+    --sidebar-accent-foreground: oklch(0.3 0.07 185);
+    --sidebar-ring: oklch(0.62 0.076 185);
+}
+html.dark[data-accent="teal"] {
+    --primary: oklch(0.72 0.081 185);
+    --primary-foreground: oklch(0.18 0.03 185);
+    --ring: oklch(0.62 0.072 185);
+    --accent: oklch(0.3 0.04 185);
+    --accent-foreground: oklch(0.92 0.03 185);
+    --sidebar-primary: oklch(0.72 0.081 185);
+    --sidebar-primary-foreground: oklch(0.18 0.03 185);
+    --sidebar-accent: oklch(0.3 0.04 185);
+    --sidebar-accent-foreground: oklch(0.92 0.03 185);
+    --sidebar-ring: oklch(0.62 0.072 185);
+}
+html[data-accent="blue"] {
+    --primary: oklch(0.52 0.17 255);
+    --primary-foreground: oklch(0.985 0.005 255);
+    --ring: oklch(0.62 0.145 255);
+    --accent: oklch(0.95 0.025 255);
+    --accent-foreground: oklch(0.3 0.07 255);
+    --sidebar-primary: oklch(0.52 0.17 255);
+    --sidebar-primary-foreground: oklch(0.985 0.005 255);
+    --sidebar-accent: oklch(0.93 0.03 255);
+    --sidebar-accent-foreground: oklch(0.3 0.07 255);
+    --sidebar-ring: oklch(0.62 0.145 255);
+}
+html.dark[data-accent="blue"] {
+    --primary: oklch(0.72 0.153 255);
+    --primary-foreground: oklch(0.18 0.03 255);
+    --ring: oklch(0.62 0.136 255);
+    --accent: oklch(0.3 0.04 255);
+    --accent-foreground: oklch(0.92 0.03 255);
+    --sidebar-primary: oklch(0.72 0.153 255);
+    --sidebar-primary-foreground: oklch(0.18 0.03 255);
+    --sidebar-accent: oklch(0.3 0.04 255);
+    --sidebar-accent-foreground: oklch(0.92 0.03 255);
+    --sidebar-ring: oklch(0.62 0.136 255);
+}
+html[data-accent="violet"] {
+    --primary: oklch(0.52 0.19 295);
+    --primary-foreground: oklch(0.985 0.005 295);
+    --ring: oklch(0.62 0.162 295);
+    --accent: oklch(0.95 0.025 295);
+    --accent-foreground: oklch(0.3 0.07 295);
+    --sidebar-primary: oklch(0.52 0.19 295);
+    --sidebar-primary-foreground: oklch(0.985 0.005 295);
+    --sidebar-accent: oklch(0.93 0.03 295);
+    --sidebar-accent-foreground: oklch(0.3 0.07 295);
+    --sidebar-ring: oklch(0.62 0.162 295);
+}
+html.dark[data-accent="violet"] {
+    --primary: oklch(0.72 0.171 295);
+    --primary-foreground: oklch(0.18 0.03 295);
+    --ring: oklch(0.62 0.152 295);
+    --accent: oklch(0.3 0.04 295);
+    --accent-foreground: oklch(0.92 0.03 295);
+    --sidebar-primary: oklch(0.72 0.171 295);
+    --sidebar-primary-foreground: oklch(0.18 0.03 295);
+    --sidebar-accent: oklch(0.3 0.04 295);
+    --sidebar-accent-foreground: oklch(0.92 0.03 295);
+    --sidebar-ring: oklch(0.62 0.152 295);
+}
+html[data-accent="rose"] {
+    --primary: oklch(0.52 0.19 10);
+    --primary-foreground: oklch(0.985 0.005 10);
+    --ring: oklch(0.62 0.162 10);
+    --accent: oklch(0.95 0.025 10);
+    --accent-foreground: oklch(0.3 0.07 10);
+    --sidebar-primary: oklch(0.52 0.19 10);
+    --sidebar-primary-foreground: oklch(0.985 0.005 10);
+    --sidebar-accent: oklch(0.93 0.03 10);
+    --sidebar-accent-foreground: oklch(0.3 0.07 10);
+    --sidebar-ring: oklch(0.62 0.162 10);
+}
+html.dark[data-accent="rose"] {
+    --primary: oklch(0.72 0.171 10);
+    --primary-foreground: oklch(0.18 0.03 10);
+    --ring: oklch(0.62 0.152 10);
+    --accent: oklch(0.3 0.04 10);
+    --accent-foreground: oklch(0.92 0.03 10);
+    --sidebar-primary: oklch(0.72 0.171 10);
+    --sidebar-primary-foreground: oklch(0.18 0.03 10);
+    --sidebar-accent: oklch(0.3 0.04 10);
+    --sidebar-accent-foreground: oklch(0.92 0.03 10);
+    --sidebar-ring: oklch(0.62 0.152 10);
+}
+html[data-accent="green"] {
+    --primary: oklch(0.52 0.13 150);
+    --primary-foreground: oklch(0.985 0.005 150);
+    --ring: oklch(0.62 0.111 150);
+    --accent: oklch(0.95 0.025 150);
+    --accent-foreground: oklch(0.3 0.07 150);
+    --sidebar-primary: oklch(0.52 0.13 150);
+    --sidebar-primary-foreground: oklch(0.985 0.005 150);
+    --sidebar-accent: oklch(0.93 0.03 150);
+    --sidebar-accent-foreground: oklch(0.3 0.07 150);
+    --sidebar-ring: oklch(0.62 0.111 150);
+}
+html.dark[data-accent="green"] {
+    --primary: oklch(0.72 0.117 150);
+    --primary-foreground: oklch(0.18 0.03 150);
+    --ring: oklch(0.62 0.104 150);
+    --accent: oklch(0.3 0.04 150);
+    --accent-foreground: oklch(0.92 0.03 150);
+    --sidebar-primary: oklch(0.72 0.117 150);
+    --sidebar-primary-foreground: oklch(0.18 0.03 150);
+    --sidebar-accent: oklch(0.3 0.04 150);
+    --sidebar-accent-foreground: oklch(0.92 0.03 150);
+    --sidebar-ring: oklch(0.62 0.104 150);
+}
+html[data-text="sm"] { font-size: 87.5%; }
+html[data-text="lg"] { font-size: 112.5%; }
+html[data-text="xl"] { font-size: 125%; }

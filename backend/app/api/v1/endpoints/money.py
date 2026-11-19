@@ -163,6 +163,13 @@ def get_bill(bill_id: uuid.UUID, ctx: PView):
     return bill_out(ctx.db, svc.get_bill(ctx, bill_id))
 
 
+@bills.get("/bills/{bill_id}/document", summary="Everything a printed bill or receipt shows (lines, charges, payments, KHR rate, COPY label)")
+def bill_document(bill_id: uuid.UUID, ctx: PView):
+    from app.services.documents import bill_document as doc
+
+    return doc(ctx, svc.get_bill(ctx, bill_id))
+
+
 @bills.post("/bills/{bill_id}/print", response_model=BillOut, summary="Print or show the bill; the table becomes Awaiting Payment")
 def print_bill(bill_id: uuid.UUID, ctx: PCreate):
     return bill_out(ctx.db, svc.print_bill(ctx, svc.get_bill(ctx, bill_id, lock=True)))

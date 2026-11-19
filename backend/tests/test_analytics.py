@@ -33,7 +33,7 @@ def setup_sales(api):
     gm, inv = api("gm"), api("invoff")
     m = menu(gm)
     units, locs, items = refs(inv)
-    opening(inv, locs[sorted(locs)[0]], items["ING-001"], "20", units["kg"], "2.00")
+    opening(inv, locs["Dry store"], items["ING-001"], "20", units["kg"], "2.00")  # demo rice is used from the dry store
     recipe(gm, m, "RN-01", 200, units, items)  # 0.40 per portion
     recipe(gm, m, "MN-01", 100, units, items)  # 0.20 per portion
     completed_order(api, m, "B1", [line(m, "RN-01", 5, ("Mild",)), line(m, "MN-01", 1, ("Mild",)), line(m, "DR-03", 1)])

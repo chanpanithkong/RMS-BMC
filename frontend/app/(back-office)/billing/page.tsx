@@ -27,6 +27,7 @@ import {
 } from "@/components/rms/kit"
 import { ReconciliationTab } from "@/components/rms/operations"
 import { PaymentDialog } from "@/components/rms/pos-dialogs"
+import { printBillDocuments } from "@/lib/rms/print"
 import * as billing from "@/lib/api/billing"
 import { refreshOrder, report, withApproval } from "@/lib/api/pos"
 import { can, useSession } from "@/lib/api/session"
@@ -237,7 +238,10 @@ export default function BillingPage() {
               label: "Reprint (COPY)",
               icon: Printer,
               onClick: () =>
-                billing.reprintReceipt(p.billId).then((r) => toast.success(`${r.receipt_no} reprint queued, marked ${r.label}`), report),
+                billing
+                  .reprintReceipt(p.billId)
+                  .then((r) => printBillDocuments([p.billId]).then(() => toast.success(`${r.receipt_no} printed, marked ${r.label}`)))
+                  .catch(report),
             },
           ]}
         />

@@ -8,8 +8,8 @@ from pydantic import Field
 from sqlalchemy import func, select
 
 from app.core.dependencies import Ctx, require
-from app.core.exceptions import Conflict, NotFound
-from app.models import Ingredient, InventoryLocation, InventoryTransaction, StockBalance, StockDocument, UnitOfMeasure
+from app.core.exceptions import BusinessRuleError, Conflict, NotFound
+from app.models import Branch, Ingredient, InventoryLocation, InventoryTransaction, StockBalance, StockDocument, UnitOfMeasure
 from app.schemas.common import ORM, Page, Strict
 from app.services import inventory as svc
 from app.services.platform import audit
@@ -36,6 +36,7 @@ class IngredientIn(Strict):
     reorder_qty: Decimal = Field(Decimal("0"), ge=0)
     track_batch: bool = False
     track_expiry: bool = False
+    default_location_id: uuid.UUID | None = Field(None, description="Where sales take this ingredient from; without one, the branch's first location by name")
 
 
 class IngredientPatch(Strict):
@@ -45,6 +46,7 @@ class IngredientPatch(Strict):
     reorder_level: Decimal | None = Field(None, ge=0)
     reorder_qty: Decimal | None = Field(None, ge=0)
     is_active: bool | None = None
+    default_location_id: uuid.UUID | None = Field(None, description="Send null to clear")
 
 
 class IngredientOut(ORM):
@@ -59,6 +61,7 @@ class IngredientOut(ORM):
     track_batch: bool
     track_expiry: bool
     is_active: bool
+    default_location_id: uuid.UUID | None = None
 
 
 class LocationOut(ORM):
@@ -167,12 +170,23 @@ def list_items(ctx: View, search: str | None = None, active: bool | None = True)
     return ctx.db.scalars(stmt.order_by(Ingredient.code)).all()
 
 
+def _check_location(ctx: Ctx, location_id: uuid.UUID | None) -> None:
+    """A default location must be an active location of this restaurant (sales at other branches use their own first location)."""
+    if location_id is None:
+        return
+    loc = ctx.db.get(InventoryLocation, location_id)
+    branch = ctx.db.get(Branch, loc.branch_id) if loc else None
+    if loc is None or not loc.is_active or branch is None or branch.restaurant_id != ctx.branch.restaurant_id:
+        raise BusinessRuleError("VALIDATION_ERROR", "Choose an active storage location.", details=[{"field": "default_location_id", "issue": "not found"}])
+
+
 @router.post("/items", response_model=IngredientOut, status_code=201)
 def create_item(body: IngredientIn, ctx: Manage):
     if ctx.db.scalar(select(Ingredient.id).where(Ingredient.code == body.code)):
         raise Conflict("INGREDIENT_CODE_EXISTS", "An ingredient with this code already exists.")
     if ctx.db.get(UnitOfMeasure, body.stock_uom_id) is None:
         raise NotFound("Unit")
+    _check_location(ctx, body.default_location_id)
     ing = Ingredient(**body.model_dump())
     ctx.db.add(ing)
     ctx.db.flush()
@@ -186,6 +200,8 @@ def update_item(ingredient_id: uuid.UUID, body: IngredientPatch, ctx: Manage):
     if ing is None:
         raise NotFound("Ingredient")
     data = body.model_dump(exclude_unset=True)
+    if data.get("default_location_id"):
+        _check_location(ctx, data["default_location_id"])
     before = {k: getattr(ing, k) for k in data}
     for k, v in data.items():
         setattr(ing, k, v)

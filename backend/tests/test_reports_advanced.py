@@ -30,7 +30,7 @@ def test_sales_kitchen_and_food_cost_reports(api):
     w, c, cook, gm, inv, kmgr = api("waiter"), api("cashier"), api("cook"), api("gm"), api("invoff"), api("kmgr")
     m = menu(w)
     units, locs, items = refs(inv)
-    opening(inv, locs[sorted(locs)[0]], items["ING-001"], "10", units["kg"], "2.00")  # consumption draws from the first location by name
+    opening(inv, locs["Dry store"], items["ING-001"], "10", units["kg"], "2.00")  # demo rice is used from the dry store (its default location)
     r = gm.post("/recipes", {"variant_id": m["RN-01"]["variants"]["Regular"]}).json()
     v = gm.post(f"/recipes/{r['id']}/versions", {"lines": [{"ingredient_id": items["ING-001"], "quantity": "200", "uom_id": units["g"]}]}).json()
     gm.post(f"/recipes/versions/{v['id']}/publish", {})

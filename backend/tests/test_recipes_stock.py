@@ -140,3 +140,28 @@ def test_transfer_batches_and_menu_wastage(api):
     fried_rice_recipe(gm, inv, m)
     w = inv.post("/inventory/menu-wastage", {"variant_id": m["RN-01"]["variants"]["Regular"], "quantity": "2", "reason": "Dropped"}).json()
     assert {money(x["quantity"]) for x in w["transactions"]} == {Decimal("-0.3"), Decimal("-0.2222")}
+
+
+def test_default_location_controls_where_sales_take_stock(api):
+    """An ingredient's default location decides where kitchen sends consume it; without one, the first location by name is used."""
+    km, inv, c = api("gm"), api("invoff"), api("cashier")
+    m = menu(c)
+    units, locs, items = refs(inv)
+    pork = items["ING-011"]
+    # Settable on create and edit; must be an active location of this restaurant; null clears it
+    assert inv.patch(f"/inventory/items/{pork}", {"default_location_id": locs["Chiller"]}).json()["default_location_id"] == locs["Chiller"]
+    assert inv.patch(f"/inventory/items/{pork}", {"default_location_id": "01a1f1c2-fdb7-7212-a567-000000000000"}).json()["error"]["code"] == "VALIDATION_ERROR"
+    new = inv.post("/inventory/items", {"code": "ING-LIME", "name_en": "Lime", "category": "Produce", "stock_uom_id": units["kg"], "default_location_id": locs["Bar"]}).json()
+    assert new["default_location_id"] == locs["Bar"]
+    assert inv.patch(f"/inventory/items/{new['id']}", {"default_location_id": None}).json()["default_location_id"] is None
+    assert api("cashier").patch(f"/inventory/items/{pork}", {"default_location_id": None}).status_code == 403
+    # A sale of Kuy Teav takes pork from the Chiller, not from the first location by name
+    opening(inv, locs["Chiller"], pork, "5", units["kg"], "5.80")
+    r = km.post("/recipes", {"variant_id": m["RN-03"]["variants"]["Regular"]}).json()
+    ver = km.post(f"/recipes/{r['id']}/versions", {"lines": [{"ingredient_id": pork, "quantity": "100", "uom_id": units["g"]}]}).json()
+    km.post(f"/recipes/versions/{ver['id']}/publish", {})
+    o = c.post("/orders", {"order_type": "DineIn", "table_tag": "9", "items": [line(m, "RN-03", 2)]}, idem=True).json()
+    assert c.post(f"/orders/{o['id']}/send", idem=True).status_code == 200
+    bal = {(b["ingredient_code"], b["location_id"]): money(b["quantity"]) for b in inv.get("/inventory/balances").json()}
+    assert bal[("ING-011", locs["Chiller"])] == Decimal("4.8")
+    assert not any(code == "ING-011" and loc != locs["Chiller"] for code, loc in bal)

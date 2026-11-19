@@ -1312,6 +1312,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bills/{bill_id}/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything a printed bill or receipt shows (lines, charges, payments, KHR rate, COPY label) */
+        get: operations["bill_document_api_v1_bills__bill_id__document_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/bills/{bill_id}/print": {
         parameters: {
             query?: never;
@@ -1912,6 +1929,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/restaurant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The restaurant's names, legal name and tax ID (shown on bills and receipts) */
+        get: operations["restaurant_api_v1_restaurant_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit the restaurant profile; audited */
+        patch: operations["patch_restaurant_api_v1_restaurant_patch"];
         trace?: never;
     };
     "/api/v1/branches": {
@@ -6323,6 +6358,13 @@ export interface components {
             business_date: string;
             /** Must Change Password */
             must_change_password: boolean;
+            /**
+             * Restaurant
+             * @description Trading names shown in the app header: {name_en, name_km}
+             */
+            restaurant?: {
+                [key: string]: unknown;
+            };
         };
         /** MenuItemIn */
         MenuItemIn: {
@@ -7744,6 +7786,24 @@ export interface components {
             token: string;
             /** New Password */
             new_password: string;
+        };
+        /** RestaurantPatch */
+        RestaurantPatch: {
+            /** Name En */
+            name_en?: string | null;
+            /** Name Km */
+            name_km?: string | null;
+            /** Legal Name */
+            legal_name?: string | null;
+            /**
+             * Tax Id
+             * @description Printed on bills and receipts when set
+             */
+            tax_id?: string | null;
+            /** Address */
+            address?: string | null;
+            /** Phone */
+            phone?: string | null;
         };
         /** ReturnIn */
         ReturnIn: {
@@ -12283,6 +12343,40 @@ export interface operations {
             };
         };
     };
+    bill_document_api_v1_bills__bill_id__document_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path: {
+                bill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     print_bill_api_v1_bills__bill_id__print_post: {
         parameters: {
             query?: never;
@@ -13760,6 +13854,74 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restaurant_api_v1_restaurant_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_restaurant_api_v1_restaurant_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-branch-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestaurantPatch"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

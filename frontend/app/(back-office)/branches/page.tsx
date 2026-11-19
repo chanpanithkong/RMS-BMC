@@ -68,8 +68,10 @@ export default function BranchesPage() {
     [from, me?.id, tab === "compare"],
     null as { rows: Row[]; total: Record<string, string | number> } | null
   )
-  const transfers = useApi(() => api<Transfer[]>("GET", "/branch-transfers"), [tab === "transfers"], [])
-  const refs = useApi(async () => ({ ingredients: await inv.ingredients(), units: await inv.units(), locations: await inv.locations() }), [], {
+  const transfers = useApi(() => (can(me, "inventory.view") ? api<Transfer[]>("GET", "/branch-transfers") : Promise.resolve([] as Transfer[])), [tab === "transfers", me?.id], [])
+  // Ingredient names for transfers; only for roles that may see inventory.
+  const refs = useApi(async () => (can(me, "inventory.view") ? { ingredients: await inv.ingredients(), units: await inv.units(), locations: await inv.locations() }
+    : { ingredients: [], units: [], locations: [] }), [me?.id], {
     ingredients: [] as inv.Ingredient[],
     units: [] as inv.Unit[],
     locations: [] as inv.Location[],
