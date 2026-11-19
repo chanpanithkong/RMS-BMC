@@ -1,8 +1,9 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -64,6 +65,28 @@ class TicketActionOut(BaseModel):
 
 def _t(t) -> dict:
     return {"ticket_id": t.id, "bumped_at": t.bumped_at, "priority": t.priority}
+
+
+@kitchen.get("/tickets/history", summary="Bumped (finished) tickets of a business day, newest first, with preparation time")
+def ticket_history(ctx: KView, business_date: date | None = None, station_code: str | None = None, limit: int = Query(200, ge=1, le=500)):
+    from app.models import KitchenTicket
+
+    day = business_date or ctx.business_date()
+    q = select(KitchenTicket).where(KitchenTicket.branch_id == ctx.branch_id, KitchenTicket.business_date == day, KitchenTicket.bumped_at.is_not(None),
+                                    KitchenTicket.ticket_type.in_(("New", "Addition")))
+    if station_code:
+        q = q.where(KitchenTicket.station_code == station_code)
+    out = []
+    for t in ctx.db.scalars(q.order_by(KitchenTicket.bumped_at.desc()).limit(limit)):
+        o = ctx.db.get(Order, t.order_id)
+        items = ksvc.ticket_items_readonly(ctx, t)
+        out.append({"ticket_id": t.id, "ticket_no": t.ticket_no, "station_code": t.station_code, "order_id": o.id, "order_no": o.order_no, "order_type": o.order_type,
+                    "where": (ctx.db.get(RestaurantTable, o.table_id).table_code if o.table_id else None) or o.table_tag or o.pickup_name,
+                    "items": ", ".join(f"{i.quantity.normalize()}× {i.item_name_en_snapshot}" for i in items if i.item_status != "Cancelled"),
+                    "cancelled_items": sum(1 for i in items if i.item_status == "Cancelled"), "priority": t.priority,
+                    "created_at": t.created_at, "bumped_at": t.bumped_at, "prep_seconds": int((t.bumped_at - t.created_at).total_seconds()),
+                    "order_open": o.order_status == "Open"})
+    return out
 
 
 @kitchen.post("/tickets/{ticket_id}/bump", response_model=TicketActionOut)

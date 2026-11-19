@@ -219,3 +219,23 @@ def test_create_order_requires_idempotency_and_replays(api):
     assert a["id"] == b["id"]
     r = c.post("/orders", {**body, "pickup_name": "B"}, idem="create-1")
     assert r.status_code == 409 and r.json()["error"]["code"] == "IDEMPOTENCY_MISMATCH"
+
+
+def test_kitchen_ticket_history(api):
+    """Bumped tickets appear in today's history with their preparation time; recall brings one back."""
+    w, cook, cashier = api("waiter"), api("cook"), api("cashier")
+    m, t = menu(w), tables(w)
+    oid = w.post(f"/tables/{t['A4']['id']}/seat", {"guest_count": 2}).json()["order_id"]
+    w.post(f"/orders/{oid}/items", [line(m, "RN-03", 2), line(m, "BR-01", 1)])
+    w.post(f"/orders/{oid}/send", idem=True)
+    assert cook.get("/kitchen/tickets/history").json() == []
+    tid = next(x["ticket_id"] for x in cook.get("/kitchen/stations/HOT/open-tickets").json() if x["order_id"] == oid)
+    cook.post(f"/kitchen/tickets/{tid}/bump")
+    hist = cook.get("/kitchen/tickets/history").json()
+    assert [h["ticket_id"] for h in hist] == [tid]
+    h = hist[0]
+    assert h["station_code"] == "HOT" and h["where"] == "A4" and h["items"] == "2× Kuy Teav Pork Noodle" and h["prep_seconds"] >= 0 and h["order_open"]
+    assert cook.get("/kitchen/tickets/history?station_code=BAR").json() == []
+    assert api("rider").get("/kitchen/tickets/history").status_code == 403
+    cook.post(f"/kitchen/tickets/{tid}/recall")
+    assert cook.get("/kitchen/tickets/history").json() == []  # back on the screen
